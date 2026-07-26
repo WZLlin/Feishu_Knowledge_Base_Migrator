@@ -1,0 +1,134 @@
+# kb-migrator · 组织知识飞书集中沉淀与持续治理工具集
+
+把分散在 **SharePoint / 本地文件夹 / 企业微信（微盘 + 群聊）** 的组织知识，可控地迁入
+**飞书**知识库，并把「分类 / 权限 / 持续治理」一起跑起来。
+
+- **交付形态**：Python 工具集（连接器 + 处理管线）+ 轻量 Web 控制台。
+- **自动化**：AI 辅助 + 人工确认（关键动作由知识 owner 复核后入库）。
+- **AI 能力**：Claude 结构化分类 / 元数据抽取（enum 约束目录，杜绝编造）。
+
+> 设计与执行方案详见 plan 文档；治理方法与模板见 `docs/`。
+
+## 架构
+
+```
+Web 控制台(FastAPI) ── 任务下发 / 进度看板 / 去重·分类人工确认队列
+        │
+处理管线(可断点续跑, 每阶段落台账)
+  抽取 → 文本提取 → 去重 → AI分类·元数据 → 人工确认 → 写飞书
+        │
+连接器: 本地文件夹 / SharePoint(Graph) / 微盘(WeDrive) / 群聊(会话存档)
+        │
+迁移台账(SQLite) ← 幂等·追溯·断点恢复的唯一权威
+```
+
+## 快速开始
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env         # 填入凭证（凭证只从环境读取，不写死）
+
+# 本地文件夹 → 飞书 最短路径
+python cli.py scan-local  D:/知识资料     # 盘点 + 抽取 + 精确去重(SHA256)
+python cli.py dedup                       # 近似去重(MinHashLSH，中文字符 4-gram)
+python cli.py classify                    # AI 分类(无 API Key 时走离线启发式)
+python cli.py stats                       # 各阶段条目数 + 沉淀比例
+python cli.py review                      # 人工确认队列
+python cli.py confirm "<key>" "01 制度与流程"
+
+# 阶段1：在飞书建目标结构 + 回填「分类->token」映射，再真实写入
+python cli.py bootstrap                    # 建云空间文件夹树(仅需应用凭证，无需 OAuth)
+python cli.py targets                       # 查看已回填的映射
+python cli.py load --dry-run                # 预览写入计划(不真实上传)
+python cli.py load                          # 真实写入(默认即 commit，会上传！需已 bootstrap)
+python cli.py retry-failed                  # 重试写飞书失败项(load 阶段；已上传的不重传)
+
+# 阶段5(Wiki 模式)：把已 load 的文件挂进 Wiki 分类节点(需先 bootstrap --wiki + OAuth)
+python cli.py push-to-wiki --dry-run        # 预览：待挂入数 + Wiki 节点分类数
+python cli.py push-to-wiki --commit         # 以【用户身份】重传并挂入 Wiki，清理租户旧副本
+
+# Web 控制台（单页可视化，所有基本操作一页完成）
+uvicorn kb_migrator.web.app:app --host 127.0.0.1 --port 8000
+```
+
+#### 一键起停：`console.py`（推荐）
+
+控制台需**常驻运行**（供你在浏览器里持续操作），用随附的 `console.py` 管理，服务以**后台分离进程**运行，关掉终端窗口也不会停：
+
+```bash
+python console.py start      # 启动：等端口就绪→自动开浏览器
+python console.py stop       # 关闭
+python console.py restart    # 重启
+python console.py status     # 查看运行状态 + /api/status
+# 可选：python console.py start --no-browser  # 启动但不自动开浏览器
+```
+
+Windows 也可**双击** `start-console.bat` / `stop-console.bat`（内部就是调 `console.py`）。
+
+- **绑定 `127.0.0.1:8000`（勿暴露公网）**；PID 记到 `data/webconsole.pid`，日志写 `data/uvicorn.log`；已在运行则只开浏览器、不重复起。
+- 用 `sys.executable -m uvicorn` 启动，拿到的 **PID 就是真正的服务进程**（避开 Windows `python` 启动器派生子进程、PID 杀不准的坑）；关闭优先按 PID，装了 `psutil` 时再按监听端口兜底扫一遍。
+- 排障：起不来看 `data/uvicorn.log` 末尾；端口被占先 `python console.py stop` 再启动。
+
+### 统一 Web 控制台
+
+一个页面六个标签，无需记命令、无需手改 `.env`：
+
+| 标签 | 能做什么 |
+|---|---|
+| **概览** | 各阶段条目数、**沉淀比例**、凭证/授权/目标结构就绪状态、最近任务 |
+| **配置** | 表单填写并保存 飞书 / Claude / 企业微信(微盘·群聊) / SharePoint 凭证 + 阈值（写入 `.env` 并热生效；密钥脱敏、留空=不改；群聊 RSA 私钥只填**路径**） |
+| **授权** | 一键飞书 OAuth（建 Wiki 空间用）；飞书 / 企业微信**连接测试** |
+| **迁移** | 本地文件夹（填路径）/ 微盘（填空间 ID）/ 群聊（就绪性检测）一键触发 + **实时进度日志**；跑去重+AI分类 |
+| **确认队列** | 逐项确认归类 / 判为重复 |
+| **目标结构** | bootstrap 建文件夹树 / 建 Wiki 空间；查看映射；load 试运行 / 真实写入 |
+
+> **安全**：控制台涉及凭证操作，**务必绑定 `127.0.0.1`**（本机单人运维工具，勿暴露到公网）；GET 接口不回明文密钥。长任务在后台线程跑，前端轮询 `/api/jobs/{id}` 看进度。
+
+### 飞书接入所需凭证（阶段1）
+
+1. **应用凭证**（云空间文件夹树 + 上传，tenant token，**无需 OAuth**）：
+   在 `.env` 填 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`（飞书开放平台「自建应用」→凭证与基础信息），
+   并在应用权限里开通 `drive:drive`（云空间读写）。→ 直接 `python cli.py bootstrap` 即可。
+2. **建 Wiki 知识空间**（需 **user_access_token**，走一次 OAuth）：
+   - `.env` 设 `FEISHU_REDIRECT_URI=http://localhost:8000/feishu/oauth/callback`
+     （并在应用「安全设置」里登记同一重定向 URL），应用开通 `wiki:wiki` 权限；
+   - 启动控制台后浏览器访问 **`/feishu/oauth/login`** → 飞书授权 → 回调自动把
+     `user_access_token` 落盘到 `data/feishu_user_token.json`；
+   - 再运行 `python cli.py bootstrap --wiki`（自动读取该 token）建空间 + 分类节点。
+3. **把文件挂进 Wiki**（`push-to-wiki`）：先跑完 `load`（文件先落云空间），再
+   `python cli.py push-to-wiki --commit` 把每份文件挂到对应分类节点下。
+   > **所有权约束（实测）**：Wiki 空间由 OAuth 用户创建、**归该用户所有**；飞书只允许把
+   > **用户本人拥有的文档** `move_docs_to_wiki` 挂进去。`load` 阶段的文件是**应用(tenant)
+   > 上传、应用拥有**的——即便把用户加为 `full_access` 协作者、甚至 `transfer_owner`，
+   > 挂载仍报 `131006 no move permission`。故 `push-to-wiki` 会**以用户身份从本地副本重新
+   > 上传**（文件归用户）再挂载，成功后把应用上传的旧副本删入回收站（去重、可恢复）。
+   > 因此 `push-to-wiki --commit` 依赖本地 `work_dir` 仍保留原始文件副本。
+
+## 模块
+
+| 目录 | 说明 |
+|---|---|
+| `kb_migrator/connectors/` | 源系统连接器，统一输出 `SourceItem` |
+| `kb_migrator/pipeline/` | 文本提取 / 去重 / Claude 分类 / 编排器 |
+| `kb_migrator/feishu/` | 飞书认证 / 限流客户端 / 高层写入 |
+| `kb_migrator/ledger.py` | 迁移台账（幂等 / 断点 / 追溯） |
+| `kb_migrator/web/` | 单页 Web 控制台（`app.py` API + `static/index.html` 前端 + `jobs.py` 任务运行器 + `settings_io.py` 凭证读写） |
+| `config/taxonomy.yaml` | 目录树 + 分类枚举 + 治理元数据 |
+| `docs/` | 操作 SOP · 治理模板 · 迁移记录模板 |
+
+## 依赖分层
+
+- **MVP 必需（纯离线可跑）**：pydantic / PyYAML / python-docx / openpyxl / charset-normalizer / datasketch。
+- **按需重依赖**：sentence-transformers + faiss-cpu（语义去重，默认注释）；旧格式 .doc/.ppt/.xls 转换——**Windows 装了 Office 时自动走 Office COM(pywin32，免安装)**，否则回退 LibreOffice；扫描件 OCR——pymupdf + pytesseract + 系统 Tesseract 引擎(含 chi_sim 语言包，路径用 `KBM_TESSERACT` 指定)。
+- **联外**：anthropic（Claude）/ httpx / msal（SharePoint）/ pycryptodome（群聊解密）。
+
+## 平台边界（重要）
+
+1. 企业微信**原生微文档/智能表格无法 API 批量导出**，仅微盘里的文件（Word/Excel/PDF）可迁。
+2. 企业微信**群聊历史**须开通「会话内容存档」且成员逐个授权，消息保留期有限。
+
+## 测试
+
+```bash
+python -m pytest -q     # 台账 / 去重 / 命名 / 本地连接器 / 编排器端到端
+```

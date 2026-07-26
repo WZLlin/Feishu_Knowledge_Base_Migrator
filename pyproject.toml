@@ -1,0 +1,12 @@
+[project]
+name = "kb-migrator"
+version = "0.1.0"
+description = "组织知识飞书集中沉淀与持续治理 —— 迁移与治理工具集"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.setuptools.packages.find]
+include = ["kb_migrator*"]

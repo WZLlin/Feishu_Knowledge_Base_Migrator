@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>组织知识飞书迁移 · 控制台</title>
+<style>
+ :root{--blue:#3370ff;--bg:#f5f6f8;--line:#e6e8eb;--muted:#8a919f;--ok:#2ea121;--err:#d83931}
+ *{box-sizing:border-box}
+ body{font-family:system-ui,'Microsoft YaHei',sans-serif;margin:0;background:var(--bg);color:#1f2329}
+ header{background:var(--blue);color:#fff;padding:12px 24px;font-size:17px;font-weight:600}
+ nav{background:#fff;border-bottom:1px solid var(--line);padding:0 16px;display:flex;gap:2px;position:sticky;top:0;z-index:5}
+ nav button{background:none;border:none;padding:14px 16px;font-size:14px;cursor:pointer;color:#4e5969;border-bottom:2px solid transparent}
+ nav button.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}
+ main{max-width:1080px;margin:20px auto;padding:0 16px}
+ .card{background:#fff;border-radius:8px;padding:18px 20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+ .card h3{margin:0 0 12px}
+ .tiles{display:flex;flex-wrap:wrap;gap:12px}
+ .tile{flex:1;min-width:130px;background:#f8f9fb;border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+ .tile .num{font-size:26px;font-weight:700} .tile .lbl{color:var(--muted);font-size:12px}
+ table{width:100%;border-collapse:collapse} th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:top}
+ th{color:var(--muted);font-weight:500}
+ label{display:block;font-size:13px;color:#4e5969;margin:10px 0 4px}
+ input,select{width:100%;font-size:14px;padding:7px 9px;border:1px solid #d0d3d9;border-radius:6px}
+ .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}
+ button.btn{background:var(--blue);color:#fff;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:14px}
+ button.ghost{background:#eef0f3;color:#1f2329}
+ button.btn:disabled{opacity:.5;cursor:not-allowed}
+ .pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;background:#e8f0fe;color:var(--blue)}
+ .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+ .dot.on{background:var(--ok)} .dot.off{background:#c9cdd4}
+ .muted{color:var(--muted);font-size:12px}
+ .row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+ .row>div{flex:1;min-width:200px}
+ pre.log{background:#0e1116;color:#c9d1d9;border-radius:6px;padding:12px;font-size:12px;max-height:280px;overflow:auto;white-space:pre-wrap;margin:10px 0 0}
+ .bar{height:6px;background:#e6e8eb;border-radius:3px;overflow:hidden;margin-top:8px}
+ .bar>i{display:block;height:100%;background:var(--blue);width:0;transition:width .3s}
+ .toast{position:fixed;right:20px;bottom:20px;background:#1f2329;color:#fff;padding:10px 16px;border-radius:6px;font-size:13px;opacity:0;transition:.3s;pointer-events:none}
+ .toast.show{opacity:.95}
+ .grp{font-size:12px;color:var(--muted);margin:14px 0 2px;font-weight:600;border-top:1px dashed var(--line);padding-top:10px}
+ .hint{background:#fff8e6;border:1px solid #ffe08a;border-radius:6px;padding:10px 12px;font-size:12px;color:#8a6d00;margin-top:8px}
+ code{background:#f0f1f3;padding:1px 5px;border-radius:4px}
+</style>
+</head>
+<body>
+<header>组织知识飞书迁移 · 控制台</header>
+<nav id="nav">
+  <button data-tab="overview" class="active">概览</button>
+  <button data-tab="config">配置</button>
+  <button data-tab="auth">授权</button>
+  <button data-tab="migrate">迁移</button>
+  <button data-tab="review">确认队列</button>
+  <button data-tab="targets">目标结构</button>
+</nav>
+<main>
+  <section id="tab-overview"></section>
+  <section id="tab-config" hidden></section>
+  <section id="tab-auth" hidden></section>
+  <section id="tab-migrate" hidden></section>
+  <section id="tab-review" hidden></section>
+  <section id="tab-targets" hidden></section>
+</main>
+<div id="toast" class="toast"></div>
+
+<script>
+const $ = (s,r=document)=>r.querySelector(s);
+const esc = s => (s??'').toString().replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600);}
+async function api(path, method='GET', body){
+  const opt={method,headers:{}};
+  if(body!==undefined){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body);}
+  const r=await fetch(path,opt);
+  if(!r.ok){let e;try{e=await r.json()}catch{e={error:r.statusText}}; throw new Error(e.error||('HTTP '+r.status));}
+  return r.json();
+}
+
+// ── 标签切换 ──
+$('#nav').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b)return;
+  [...$('#nav').children].forEach(x=>x.classList.toggle('active',x===b));
+  const tab=b.dataset.tab;
+  ['overview','config','auth','migrate','review','targets'].forEach(t=>$('#tab-'+t).hidden=(t!==tab));
+  RENDER[tab]&&RENDER[tab]();
+});
+
+// ── 概览 ──
+async function renderOverview(){
+  const el=$('#tab-overview'); el.innerHTML='<div class="card">加载中…</div>';
+  try{
+    const s=await api('/api/status');
+    const dot=b=>`<span class="dot ${b?'on':'off'}"></span>`;
+    el.innerHTML=`
+    <div class="card"><h3>迁移进度</h3>
+      <div class="tiles">
+        ${tile('台账总数',s.total)}${tile('已入飞书',s.loaded)}
+        ${tile('待复核',s.counts.classified||0)}${tile('已确认待写',s.counts.confirmed||0)}
+        ${tile('重复跳过',s.counts.skipped_duplicate||0)}${tile('失败',s.counts.failed||0)}
+      </div>
+      <p class="muted" style="margin-top:12px">沉淀比例（已入飞书/台账总数）：<b style="font-size:16px;color:var(--blue)">${s.sink_ratio}%</b></p>
+    </div>
+    <div class="card"><h3>接入状态</h3>
+      <p>${dot(s.feishu_ready)}飞书应用凭证 &nbsp;&nbsp; ${dot(s.claude_ready)}Claude 分类 &nbsp;&nbsp;
+         ${dot(s.wecom_ready)}企业微信微盘 &nbsp;&nbsp; ${dot(s.oauth_token)}飞书 OAuth(建空间)</p>
+      <p class="muted">目标结构：${s.targets_mode?esc(s.targets_mode)+'（'+s.targets_count+' 个分类文件夹）':'未初始化，去「目标结构」页 bootstrap'}</p>
+    </div>
+    <div class="card"><h3>最近任务</h3>${jobsTable(s.jobs)}</div>`;
+  }catch(e){el.innerHTML=`<div class="card">加载失败：${esc(e.message)}</div>`;}
+}
+const tile=(l,v)=>`<div class="tile"><div class="num">${v??0}</div><div class="lbl">${l}</div></div>`;
+function jobsTable(jobs){
+  if(!jobs||!jobs.length)return '<p class="muted">暂无任务</p>';
+  return '<table><tr><th>类型</th><th>状态</th><th>最新</th></tr>'+jobs.map(j=>
+    `<tr><td>${esc(j.type)}</td><td>${statusBadge(j.status)}</td><td class="muted">${esc((j.log[0]||''))}</td></tr>`).join('')+'</table>';
+}
+const statusBadge=s=>({pending:'⏳ 等待',running:'▶ 运行中',success:'✅ 成功',error:'❌ 失败'}[s]||s);
+
+// ── 配置 ──
+async function renderConfig(){
+  const el=$('#tab-config'); el.innerHTML='<div class="card">加载中…</div>';
+  const {fields}=await api('/api/settings');
+  const groups={};
+  for(const [k,f] of Object.entries(fields)){(groups[f.group]=groups[f.group]||[]).push([k,f]);}
+  let html='<div class="card"><h3>凭证与参数</h3><div class="grid2">';
+  for(const [g,arr] of Object.entries(groups)){
+    html+=`<div style="grid-column:1/-1" class="grp">${g}</div>`;
+    for(const [k,f] of arr){
+      const ph=f.configured?(f.sensitive?f.value:''):'未配置';
+      html+=`<div><label>${k}${f.sensitive?' 🔒':''}</label>
+        <input data-key="${k}" value="${esc(f.sensitive?'':f.value)}" placeholder="${esc(ph)}"></div>`;
+    }
+  }
+  html+='</div>'
+    +'<div class="hint">密钥类字段留空=不修改（脱敏回显）。群聊 RSA 私钥只填<b>文件路径</b>，不要粘贴私钥内容。</div>'
+    +'<p style="margin-top:14px"><button class="btn" onclick="saveConfig()">保存到 .env 并热生效</button></p></div>';
+  el.innerHTML=html;
+}
+async function saveConfig(){
+  const payload={};
+  $('#tab-config').querySelectorAll('input[data-key]').forEach(i=>{const v=i.value.trim();if(v)payload[i.dataset.key]=v;});
+  try{const r=await api('/api/settings','POST',payload);toast('已保存：'+(r.changed.join(', ')||'无改动'));renderConfig();}
+  catch(e){toast('保存失败：'+e.message);}
+}
+
+// ── 授权 ──
+async function renderAuth(){
+  const el=$('#tab-auth');
+  el.innerHTML=`
+  <div class="card"><h3>飞书授权（建 Wiki 知识空间需要）</h3>
+    <p class="muted">点击跳转飞书授权页，回调后 user_access_token 自动落盘。需应用已开通 <code>wiki:wiki</code> 且登记重定向 URL。</p>
+    <p><a href="/api/oauth/feishu/login"><button class="btn">前往飞书授权</button></a></p>
+  </div>
+  <div class="card"><h3>连接测试</h3>
+    <p><button class="btn ghost" onclick="testConn('feishu')">测试飞书应用凭证</button>
+       <button class="btn ghost" onclick="testConn('wecom')">测试企业微信凭证</button></p>
+    <p id="test-result" class="muted"></p>
+    <div class="hint">企业微信需把<b>服务器出口 IP 加入应用可信 IP 白名单</b>，否则报 60020。</div>
+  </div>`;
+}
+async function testConn(which){
+  $('#test-result').textContent='测试中…';
+  try{const r=await api('/api/test/'+which,'POST',{});$('#test-result').innerHTML=(r.ok?'✅ ':'❌ ')+esc(r.msg);}
+  catch(e){$('#test-result').textContent='❌ '+e.message;}
+}
+
+// ── 迁移 ──
+function renderMigrate(){
+  $('#tab-migrate').innerHTML=`
+  <div class="card"><h3>① 本地文件夹</h3>
+    <div class="row"><div><label>文件夹路径</label><input id="scan-path" placeholder="D:/知识资料 或 \\\\server\\share"></div>
+      <button class="btn" onclick="runJob('/api/jobs/scan-local',{path:$('#scan-path').value})">盘点+抽取</button></div>
+  </div>
+  <div class="card"><h3>② 企业微信微盘</h3>
+    <div class="row"><div><label>微盘空间 ID（逗号分隔）</label><input id="wd-spaces" placeholder="spaceid1,spaceid2"></div>
+      <button class="btn" onclick="runJob('/api/jobs/wedrive',{space_ids:$('#wd-spaces').value})">盘点+抽取</button></div>
+    <div class="hint">仅普通文件可迁；原生微文档无法批量导出（平台限制）。应用须为各空间成员。</div>
+  </div>
+  <div class="card"><h3>③ 企业微信群聊（会话存档）</h3>
+    <div class="row"><button class="btn ghost" onclick="runJob('/api/jobs/wecom-chat',{})">检测就绪性</button></div>
+    <div class="hint">需开通「会话内容存档」+ 部署原生 SDK + 配置 RSA 私钥；未就绪时降级为「仅迁群文件」（用微盘迁）。</div>
+  </div>
+  <div class="card"><h3>④ 去重 + AI 分类（承接盘点之后）</h3>
+    <div class="row"><button class="btn" onclick="runJob('/api/jobs/pipeline',{})">跑近似去重 + 分类</button></div>
+  </div>
+  <div class="card"><h3>任务进度</h3><div id="job-panel"><p class="muted">触发任务后在此显示实时进度</p></div></div>`;
+}
+
+// ── 通用任务运行 + 轮询 ──
+async function runJob(path, body){
+  const panel=$('#job-panel');
+  panel.innerHTML='<p class="muted">启动中…</p>';
+  try{
+    const {job_id}=await api(path,'POST',body);
+    pollJob(job_id,panel);
+  }catch(e){panel.innerHTML=`<p>❌ ${esc(e.message)}</p>`;}
+}
+async function pollJob(id, panel){
+  const render=j=>{
+    const p=j.progress, pct=p.total?Math.round(p.done/p.total*100):(j.status==='success'?100:0);
+    panel.innerHTML=`<p>状态：${statusBadge(j.status)} &nbsp; <span class="muted">${p.total?`${p.done}/${p.total}`:''}</span></p>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <pre class="log">${esc((j.log||[]).join('\n'))}</pre>`;
+    panel.querySelector('.log').scrollTop=1e9;
+  };
+  while(true){
+    let j;try{j=await api('/api/jobs/'+id);}catch(e){panel.innerHTML='❌ '+esc(e.message);return;}
+    render(j);
+    if(j.status==='success'||j.status==='error'){toast('任务'+(j.status==='success'?'完成':'失败'));break;}
+    await new Promise(r=>setTimeout(r,900));
+  }
+}
+
+// ── 确认队列 ──
+async function renderReview(){
+  const el=$('#tab-review'); el.innerHTML='<div class="card">加载中…</div>';
+  const {items,categories}=await api('/api/review');
+  const opts=c=>categories.map(x=>`<option ${x===c?'selected':''}>${esc(x)}</option>`).join('');
+  const rows=items.map(r=>`<tr>
+    <td>${esc(r.name)}<div class="muted">${esc(r.key)}</div></td>
+    <td><span class="pill">${esc(r.category||'')}</span><div class="muted">conf=${r.confidence}</div></td>
+    <td class="muted">${esc(r.note||'')}</td>
+    <td><select id="sel-${esc(r.key)}">${opts(r.category)}</select></td>
+    <td><button class="btn" onclick="doConfirm('${esc(r.key)}')">确认</button>
+        <button class="btn ghost" onclick="doReject('${esc(r.key)}')">判为重复</button></td></tr>`).join('');
+  el.innerHTML=`<div class="card"><h3>人工确认队列（${items.length}）</h3>
+    <table><tr><th>文件</th><th>AI 建议</th><th>备注</th><th>改归类</th><th>操作</th></tr>
+    ${rows||'<tr><td colspan=5 class="muted">队列为空</td></tr>'}</table></div>`;
+}
+async function doConfirm(key){
+  const cat=$('#sel-'+CSS.escape(key)).value;
+  try{await api('/api/confirm','POST',{key,category:cat});toast('已确认');renderReview();}catch(e){toast(e.message);}
+}
+async function doReject(key){
+  try{await api('/api/reject','POST',{key});toast('已判为重复');renderReview();}catch(e){toast(e.message);}
+}
+
+// ── 目标结构 ──
+async function renderTargets(){
+  const el=$('#tab-targets'); el.innerHTML='<div class="card">加载中…</div>';
+  const {summary}=await api('/api/targets');
+  el.innerHTML=`
+  <div class="card"><h3>阶段1 · 建目标结构</h3>
+    <p><button class="btn" onclick="runTargetJob('/api/jobs/bootstrap',{mode:'drive'})">建云空间文件夹树（仅需应用凭证）</button>
+       <button class="btn ghost" onclick="runTargetJob('/api/jobs/bootstrap',{mode:'wiki'})">建 Wiki 知识空间（需 OAuth）</button></p>
+    <pre class="log" style="max-height:200px">${esc(summary)}</pre>
+  </div>
+  <div class="card"><h3>写入飞书</h3>
+    <p><button class="btn ghost" onclick="runTargetJob('/api/jobs/load',{dry_run:true})">试运行(dry-run)</button>
+       <button class="btn" onclick="runTargetJob('/api/jobs/load',{dry_run:false})">真实写入</button></p>
+    <div id="job-panel2"><p class="muted">触发后显示进度</p></div>
+  </div>`;
+}
+async function runTargetJob(path,body){
+  const panel=$('#job-panel2')||$('#tab-targets');
+  try{const {job_id}=await api(path,'POST',body);await pollJobInto(job_id,panel);renderTargets();}
+  catch(e){toast(e.message);}
+}
+async function pollJobInto(id,panel){
+  while(true){
+    const j=await api('/api/jobs/'+id);
+    const p=j.progress,pct=p.total?Math.round(p.done/p.total*100):(j.status==='success'?100:0);
+    panel.innerHTML=`<p>状态：${statusBadge(j.status)}</p><div class="bar"><i style="width:${pct}%"></i></div>
+      <pre class="log">${esc((j.log||[]).join('\n'))}</pre>`;
+    if(j.status==='success'||j.status==='error')break;
+    await new Promise(r=>setTimeout(r,900));
+  }
+}
+
+const RENDER={overview:renderOverview,config:renderConfig,auth:renderAuth,migrate:renderMigrate,review:renderReview,targets:renderTargets};
+renderOverview();
+</script>
+</body>
+</html>

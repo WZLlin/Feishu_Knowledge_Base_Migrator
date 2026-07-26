@@ -1,0 +1,43 @@
+# ── 核心运行时（MVP 必需，纯离线可跑）────────────────────────
+pydantic>=2.6
+pydantic-settings>=2.2
+PyYAML>=6.0
+httpx>=0.27
+
+# ── Web 控制台 ────────────────────────────────────────────────
+fastapi>=0.110
+uvicorn[standard]>=0.29
+jinja2>=3.1
+python-multipart>=0.0.9
+
+# ── 文本提取 / 格式解析 ──────────────────────────────────────
+python-docx>=1.1
+openpyxl>=3.1
+python-pptx>=0.6
+pdfplumber>=0.11
+pypdf>=4.2
+charset-normalizer>=3.3
+ftfy>=6.2
+# 扫描件 OCR（需另装系统 Tesseract 引擎 + chi_sim 语言包）：
+pymupdf>=1.24              # PDF 逐页渲染成图供 OCR
+pytesseract>=0.3.10        # 调用 Tesseract 引擎
+# 旧格式 .doc/.ppt/.xls：Windows 上用 Office COM（免安装），需 pywin32：
+pywin32>=306; sys_platform == "win32"
+
+# ── 去重 ──────────────────────────────────────────────────────
+datasketch>=1.6            # MinHash / LSH 近似去重
+# 语义去重为「按需」重依赖，默认注释，需要时再装：
+# sentence-transformers>=2.7
+# faiss-cpu>=1.8
+
+# ── AI 分类 / 元数据（Claude）────────────────────────────────
+anthropic>=0.34
+
+# ── SharePoint 连接器 ────────────────────────────────────────
+msal>=1.28                 # Entra ID client_credentials
+
+# ── 企业微信群聊会话存档解密 ─────────────────────────────────
+pycryptodome>=3.20         # RSA 私钥解密 get_chat_data 返回的密文
+
+# ── 测试 ──────────────────────────────────────────────────────
+pytest>=8.0

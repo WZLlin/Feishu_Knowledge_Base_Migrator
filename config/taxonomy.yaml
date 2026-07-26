@@ -1,0 +1,59 @@
+# ═══════════════════════════════════════════════════════════════
+# 组织知识库分类体系（目录树 + 分类枚举 + 治理元数据）
+#
+# - categories 的每个 path 就是 AI 分类的 enum 约束值，杜绝「编造目录」。
+# - owner/steward 为治理元数据；新文档默认继承所在分支的 owner。
+# - review_months 为该分支复审节奏（按风险分层），驱动过期检测。
+# - retention_years 为归档保留期；归档是「移动到 99 归档」而非删除。
+# - triage / archive 为一等目录（低置信落 triage，过期移 archive）。
+# 落地时按本组织实际替换 owner/steward 名单与保留期。
+# ═══════════════════════════════════════════════════════════════
+
+space_name: "组织知识库"
+
+categories:
+  - path: "01 制度与流程"
+    doc_types: [policy, process]
+    owner: ""
+    steward: ""
+    review_months: 3
+    retention_years: 10
+  - path: "02 项目资料"
+    doc_types: [project]
+    owner: ""
+    steward: ""
+    review_months: 6
+    retention_years: 5
+  - path: "03 会议与结论"
+    doc_types: [meeting, decision]
+    owner: ""
+    steward: ""
+    review_months: 12
+    retention_years: 3
+  - path: "04 业务经验与方法"
+    doc_types: [knowhow]
+    owner: ""
+    steward: ""
+    review_months: 12
+    retention_years: 5
+  - path: "05 模板与规范"
+    doc_types: [template, standard]
+    owner: ""
+    steward: ""
+    review_months: 6
+    retention_years: 5
+  - path: "06 参考资料"
+    doc_types: [reference]
+    owner: ""
+    steward: ""
+    review_months: 12
+    retention_years: 3
+
+# 一等目录：不参与 AI 自动归类，但结构上必须存在
+triage_path: "90 待整理"      # 低置信/未归类落地区，steward 定期清空
+archive_path: "99 归档"       # 过期内容移入（不删除），保留归档原因/时间
+
+# 命名规范：YYYY-MM-DD_<类型>_<简述标题>_v<版本>
+naming:
+  pattern: "{date}_{doc_type}_{slug}_v{version}"
+  default_version: "1"
