@@ -169,16 +169,23 @@ function renderMigrate(){
     <div class="row"><div><label>文件夹路径</label><input id="scan-path" placeholder="D:/知识资料 或 \\\\server\\share"></div>
       <button class="btn" onclick="runJob('/api/jobs/scan-local',{path:$('#scan-path').value})">盘点+抽取</button></div>
   </div>
-  <div class="card"><h3>② 企业微信微盘</h3>
+  <div class="card"><h3>② SharePoint</h3>
+    <div class="row"><div><label>站点收窄关键字（可空=全部根站点）</label><input id="sp-site" placeholder="留空=全部；或填站点名关键字"></div>
+      <button class="btn" onclick="runJob('/api/jobs/sharepoint',{site:$('#sp-site').value})">盘点+抽取</button></div>
+    <div class="hint">MS Graph 应用权限 Sites.Read.All + Files.Read.All（需管理员同意）；凭证在「配置」页填。</div>
+  </div>
+  <div class="card"><h3>③ 企业微信微盘</h3>
     <div class="row"><div><label>微盘空间 ID（逗号分隔）</label><input id="wd-spaces" placeholder="spaceid1,spaceid2"></div>
       <button class="btn" onclick="runJob('/api/jobs/wedrive',{space_ids:$('#wd-spaces').value})">盘点+抽取</button></div>
     <div class="hint">仅普通文件可迁；原生微文档无法批量导出（平台限制）。应用须为各空间成员。</div>
   </div>
-  <div class="card"><h3>③ 企业微信群聊（会话存档）</h3>
-    <div class="row"><button class="btn ghost" onclick="runJob('/api/jobs/wecom-chat',{})">检测就绪性</button></div>
-    <div class="hint">需开通「会话内容存档」+ 部署原生 SDK + 配置 RSA 私钥；未就绪时降级为「仅迁群文件」（用微盘迁）。</div>
+  <div class="card"><h3>④ 企业微信群聊（会话存档）</h3>
+    <div class="row"><div><label>群聊 ID（留空=仅检测就绪性）</label><input id="chat-id" placeholder="wecom_chat_id"></div>
+      <div><label>群名（可选，便于核对）</label><input id="chat-name" placeholder="原群名"></div>
+      <button class="btn" onclick="runJob('/api/jobs/wecom-chat',{chat_id:$('#chat-id').value,name:$('#chat-name').value})">检测/迁移</button></div>
+    <div class="hint">需开通「会话内容存档」+ 部署原生 SDK + 配置 RSA 私钥；就绪且填了群聊 ID 才真正迁移（按天聚合进标准管线，随后跑去重+分类）。未就绪降级为「仅迁群文件」（用微盘迁）。</div>
   </div>
-  <div class="card"><h3>④ 去重 + AI 分类（承接盘点之后）</h3>
+  <div class="card"><h3>⑤ 去重 + AI 分类（承接盘点之后）</h3>
     <div class="row"><button class="btn" onclick="runJob('/api/jobs/pipeline',{})">跑近似去重 + 分类</button></div>
   </div>
   <div class="card"><h3>任务进度</h3><div id="job-panel"><p class="muted">触发任务后在此显示实时进度</p></div></div>`;

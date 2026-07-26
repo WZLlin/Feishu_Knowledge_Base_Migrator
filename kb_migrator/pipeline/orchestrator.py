@@ -123,6 +123,93 @@ class Orchestrator:
             stats["extracted"] += 1
         return stats
 
+    # ── 阶段 1b：群聊会话存档 -> 会话片段 -> 标准 items 管线 ──
+
+    def ingest_chat(self, connector, chat_id: str, chat_name: str = "",
+                    limit: int = 1000, max_batches: int = 1000,
+                    progress: ProgressCb = None) -> dict:
+        """群聊会话存档迁移：把一个群的历史消息按自然日聚合成「会话片段」，
+        每片段渲染为 .md 落 work_dir，作为 SourceItem(WECOM_CHAT) 登记进 items 表并置
+        EXTRACTED，随后复用既有 dedup/classify/confirm/load/push-to-wiki 全流程。
+
+        增量：以 chat_migrations.last_message_seq 为游标，只拉新消息（seq 不推进即停）。
+        幂等：按天分片，source_id=chat_id:YYYY-MM-DD；已进入后续阶段(已分类/确认/入库)的
+        旧片段重跑跳过，不回退。member_snapshot/last_message_seq/status 回写 chat_migrations。
+
+        connector 需实现 fetch_messages(seq, limit)（ChatArchiveConnector；离线抛 RuntimeError）。
+        """
+        from ..models import SourceType
+        from ..connectors.wecom_chat import aggregate_messages
+
+        stats = {"batches": 0, "messages": 0, "segments": 0, "skipped_existing": 0}
+        chat_dir = os.path.join(self.work_dir, "chat")
+        os.makedirs(chat_dir, exist_ok=True)
+
+        row = self.led.get_chat(chat_id)
+        seq = int(row["last_message_seq"]) if row and row["last_message_seq"] else 0
+        name = chat_name or (row["chat_name_original"] if row else "") or ""
+        self.led.upsert_chat(chat_id, chat_name_original=name,
+                             migration_status="in_progress")
+
+        # 1) 按 seq 游标增量拉取所有新消息批次
+        all_msgs: list[dict] = []
+        for _ in range(max_batches):
+            msgs, new_seq = connector.fetch_messages(seq, limit)
+            if not msgs:
+                break
+            all_msgs.extend(msgs)
+            stats["batches"] += 1
+            _report(progress, stats["batches"], 0,
+                     f"拉取会话批次 {stats['batches']}，累计 {len(all_msgs)} 条")
+            if new_seq <= seq:      # 游标未推进：防死循环
+                seq = new_seq
+                break
+            seq = new_seq
+            if len(msgs) < limit:   # 不足一批，已到末尾
+                break
+        stats["messages"] = len(all_msgs)
+
+        # 2) 聚合为会话片段（按自然日）
+        segments = aggregate_messages(chat_id, all_msgs)
+        members: set[str] = set()
+        done_stages = (Stage.CLASSIFIED.value, Stage.CONFIRMED.value,
+                       Stage.LOADED.value, Stage.SKIPPED_DUPLICATE.value)
+        for done, seg in enumerate(segments, 1):
+            members.update(seg.participants)
+            sid = f"{chat_id}:{seg.date}"
+            item = SourceItem(
+                source_type=SourceType.WECOM_CHAT, source_id=sid,
+                source_path=f"wecom_chat://{chat_id}/{seg.date}",
+                original_name=f"群聊_{name or chat_id}_{seg.date}.md",
+                raw_metadata={"chat_id": chat_id, "date": seg.date,
+                              "participants": seg.participants, "files": seg.files},
+            )
+            key = item.stable_key()
+            _report(progress, done, len(segments), f"会话片段 {seg.date}")
+            existing = self.led.get(key)
+            if existing and existing["stage"] in done_stages:
+                stats["skipped_existing"] += 1   # 已进入后续阶段，幂等跳过
+                continue
+            text = seg.to_text()
+            blob = os.path.join(chat_dir, f"{chat_id}_{seg.date}.md")
+            with open(blob, "w", encoding="utf-8") as f:
+                f.write(text)
+            sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+            item.local_blob_path = blob
+            item.content_sha256 = sha
+            self.led.upsert_discovered(item)      # 幂等登记（已存在则不覆盖）
+            self._save_text(key, text)
+            self.led.update(key, stage=Stage.EXTRACTED.value, content_sha256=sha,
+                            local_blob_path=blob, dedup_cluster_id=sha, error_detail=None)
+            stats["segments"] += 1
+
+        # 3) 回写群聊台账（增量游标 + 成员快照 + 状态）
+        self.led.upsert_chat(
+            chat_id, last_message_seq=str(seq), member_snapshot=sorted(members),
+            migration_status="completed" if (segments or row) else "partial",
+        )
+        return stats
+
     # ── 阶段 2：dedup（近似）──────────────────────────────
 
     def dedup_pass(self, threshold: float = 0.75, progress: ProgressCb = None) -> dict:

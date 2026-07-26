@@ -50,6 +50,62 @@ def cmd_scan_local(args):
     led.close()
 
 
+def cmd_scan_sharepoint(args):
+    """盘点+抽取 SharePoint（MS Graph，client_credentials 应用权限）。"""
+    from kb_migrator.connectors.sharepoint import SharePointConnector
+
+    s, _tx, led, orch = _bootstrap()
+    if not (s.ms_tenant_id and s.ms_client_id and s.ms_client_secret):
+        raise SystemExit(
+            "缺少 MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET，请在 .env 配置 "
+            "Entra ID 应用凭证（应用权限 Sites.Read.All + Files.Read.All，需管理员同意）。")
+    site_filter = args.site or s.ms_site_filter or None
+    conn = SharePointConnector(s.ms_tenant_id, s.ms_client_id, s.ms_client_secret,
+                               s.work_dir, site_filter=site_filter)
+    print(f"scan-sharepoint (site_filter={site_filter or '全部根站点'}):",
+          orch.ingest(conn))
+    led.close()
+
+
+def cmd_scan_wedrive(args):
+    """盘点+抽取 企业微信微盘（仅普通文件可下载；服务器 IP 须在可信白名单）。"""
+    from kb_migrator.connectors.wedrive import WeDriveConnector
+
+    s, _tx, led, orch = _bootstrap()
+    if not (s.wecom_corp_id and s.wecom_wedrive_secret):
+        raise SystemExit("缺少 WECOM_CORP_ID / WECOM_WEDRIVE_SECRET，请在 .env 配置。")
+    space_ids = [x.strip() for x in args.space_ids.split(",") if x.strip()]
+    if not space_ids:
+        raise SystemExit("请提供至少一个微盘空间 ID（逗号分隔）。")
+    conn = WeDriveConnector(s.wecom_corp_id, s.wecom_wedrive_secret, space_ids, s.work_dir)
+    print("scan-wedrive:", orch.ingest(conn))
+    led.close()
+
+
+def cmd_migrate_chat(args):
+    """群聊会话存档迁移：按自然日聚合会话片段，进标准管线（需原生存档 SDK + RSA 私钥）。"""
+    import os
+
+    from kb_migrator.connectors.wecom_chat import ChatArchiveConnector
+
+    s, _tx, led, orch = _bootstrap()
+    pem = ""
+    if s.wecom_chat_private_key_file and os.path.exists(s.wecom_chat_private_key_file):
+        with open(s.wecom_chat_private_key_file, "r", encoding="utf-8") as f:
+            pem = f.read()
+    conn = ChatArchiveConnector(s.wecom_corp_id, s.wecom_chat_archive_secret, pem,
+                                sdk_lib_path=s.wecom_chat_sdk_lib_path)
+    if not conn.online:
+        print("会话存档未就绪：需开通「会话内容存档」+ 部署原生 WeWorkFinanceSdk"
+              "（WECOM_CHAT_SDK_LIB）+ 配置 RSA 私钥（WECOM_CHAT_PRIVATE_KEY_FILE）。")
+        print("未就绪时降级为「仅迁群文件」——用 `scan-wedrive` 迁群文件即可。")
+        led.close()
+        return
+    print("migrate-chat:", orch.ingest_chat(conn, args.chat_id, chat_name=args.name,
+                                            limit=args.limit))
+    led.close()
+
+
 def cmd_dedup(args):
     _s, _tx, led, orch = _bootstrap()
     print("dedup:", orch.dedup_pass(threshold=args.threshold))
@@ -217,6 +273,20 @@ def main(argv=None):
     sp = sub.add_parser("scan-local", help="盘点+抽取本地文件夹")
     sp.add_argument("root")
     sp.set_defaults(func=cmd_scan_local)
+
+    sp = sub.add_parser("scan-sharepoint", help="盘点+抽取 SharePoint(MS Graph)")
+    sp.add_argument("--site", default="", help="站点收窄关键字，缺省用 MS_SITE_FILTER 或全部根站点")
+    sp.set_defaults(func=cmd_scan_sharepoint)
+
+    sp = sub.add_parser("scan-wedrive", help="盘点+抽取 企业微信微盘")
+    sp.add_argument("space_ids", help="微盘空间 ID（逗号分隔，应用须为其成员）")
+    sp.set_defaults(func=cmd_scan_wedrive)
+
+    sp = sub.add_parser("migrate-chat", help="群聊会话存档迁移(需存档 SDK + RSA 私钥)")
+    sp.add_argument("chat_id", help="群聊 ID（wecom_chat_id）")
+    sp.add_argument("--name", default="", help="群名（回写台账，便于人工核对）")
+    sp.add_argument("--limit", type=int, default=1000, help="每批拉取消息数上限")
+    sp.set_defaults(func=cmd_migrate_chat)
 
     sp = sub.add_parser("dedup", help="近似去重")
     sp.add_argument("--threshold", type=float, default=0.75)

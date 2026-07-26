@@ -28,8 +28,12 @@ Web 控制台(FastAPI) ── 任务下发 / 进度看板 / 去重·分类人工
 pip install -r requirements.txt
 cp .env.example .env         # 填入凭证（凭证只从环境读取，不写死）
 
-# 本地文件夹 → 飞书 最短路径
-python cli.py scan-local  D:/知识资料     # 盘点 + 抽取 + 精确去重(SHA256)
+# 盘点+抽取：四类源都汇入同一台账、走同一后续管线
+python cli.py scan-local  D:/知识资料     # 本地文件夹：盘点 + 抽取 + 精确去重(SHA256)
+python cli.py scan-sharepoint             # SharePoint(MS Graph)；--site 关键字或 MS_SITE_FILTER 收窄站点
+python cli.py scan-wedrive 空间ID1,空间ID2  # 企业微信微盘(仅普通文件；服务器 IP 须在可信白名单)
+python cli.py migrate-chat <群聊ID> --name "群名"  # 群聊会话存档→按天聚合为会话片段进管线(需存档 SDK + RSA 私钥)
+
 python cli.py dedup                       # 近似去重(MinHashLSH，中文字符 4-gram)
 python cli.py classify                    # AI 分类(无 API Key 时走离线启发式)
 python cli.py stats                       # 各阶段条目数 + 沉淀比例

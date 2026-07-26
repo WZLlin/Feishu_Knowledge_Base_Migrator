@@ -29,13 +29,19 @@
 3. 配置空间成员与默认权限（管理员=owner、编辑=steward、成员=只读）。
 4. 记录「分类路径 → 飞书 folder_token」映射，回填给 `load` 步骤的 `folder_map`。
 
-## 阶段 2 · 跑迁移管线（以本地文件夹为例）
+## 阶段 2 · 跑迁移管线（四类源汇入同一台账、共用后续管线）
 
 ```
-python cli.py scan-local <路径>   # 盘点+抽取+精确去重
-python cli.py dedup               # 近似去重
-python cli.py classify            # AI 分类
+python cli.py scan-local <路径>              # 本地文件夹：盘点+抽取+精确去重
+python cli.py scan-sharepoint                # SharePoint(MS Graph)；--site 关键字或 MS_SITE_FILTER 收窄站点
+python cli.py scan-wedrive <空间ID1,空间ID2>  # 企业微信微盘（仅普通文件；服务器 IP 须在可信白名单）
+python cli.py dedup                          # 近似去重
+python cli.py classify                       # AI 分类
 ```
+- **SharePoint**：需 `MS_TENANT_ID`/`MS_CLIENT_ID`/`MS_CLIENT_SECRET`（应用权限，管理员同意）；
+  站点多时用 `--site 关键字` 或 `.env` 的 `MS_SITE_FILTER` 收窄，避免全量递归。
+- **微盘**：仅普通文件（Word/Excel/PDF/PPT）可迁，原生微文档跳过并记 note；应用须为每个微盘空间成员。
+- 群聊会话正文走**阶段 5** 的 `migrate-chat`（同样汇入本管线）；群里的**文件**用 `scan-wedrive` 迁。
 - 观察 `python cli.py stats` 的**沉淀比例**与**失败/重复**计数。
 - 失败项看 `error_detail`：旧格式需装 LibreOffice；扫描件需 OCR；锁文件自动跳过。
 - **AI 分类默认走 Batch**（token 5 折，`KBM_CLAUDE_USE_BATCH=true`）；待分类数≥8 且在线时启用，
@@ -81,10 +87,18 @@ python cli.py push-to-wiki --commit      # 真实挂入（需已完成 OAuth，�
 
 ## 阶段 5 · 群聊迁移（POC，前提：已开通会话存档）
 
-1. 选「成员少、已授权」试点群。
-2. 抽取（`seq` 增量 + 私钥解密）→ 按天聚合会话片段 → Claude 摘要 → 写飞书节点。
-3. 权限按群成员快照映射为协作者；群名打标「原群名[已备份]」。
-4. 后续只增量同步新消息（台账 `last_message_seq` 游标），并按成员进出增删协作者。
+```
+python cli.py migrate-chat <群聊ID> --name "群名" --limit 1000
+```
+1. **前置**：`.env` 配 `WECOM_CORP_ID`/`WECOM_CHAT_ARCHIVE_SECRET`、`WECOM_CHAT_PRIVATE_KEY_FILE`
+   （RSA 私钥**只填路径**、独立隔离托管，不粘贴内容）、`WECOM_CHAT_SDK_LIB`（原生 WeWorkFinanceSdk 库路径）。
+2. 选「成员少、已授权」试点群，跑 `migrate-chat`。命令内部：抽取（`seq` 增量 + 私钥解密）→
+   **按自然日聚合成「会话片段」**，每片段渲染为 `.md` 作为 `SourceItem(WECOM_CHAT)` 进标准管线（置 EXTRACTED）。
+3. 随后照常 `dedup` → `classify` → 确认 → `load`/`push-to-wiki`，与文件走同一后续流程。
+4. **增量**：台账 `last_message_seq` 作游标，重跑只拉新消息；已推进到后续阶段（已分类/确认/入库）的
+   旧片段跳过、不回退。`member_snapshot`（群成员快照）回写台账，供权限映射。
+5. **未就绪降级**：未开通存档 / 无原生 SDK / 无私钥时 `online=False`，命令**不报错**，打印就绪指引并
+   提示降级为「仅迁群文件」——群文件用 `scan-wedrive` 迁即可。Web 控制台「迁移」页做就绪性检测。
 
 ## 断点续跑与幂等
 

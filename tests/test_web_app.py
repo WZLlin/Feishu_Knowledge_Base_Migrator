@@ -69,3 +69,21 @@ def test_retry_job_dry_run(client):
     job = _poll(client, r.json()["job_id"])
     assert job["status"] == "success", job
     assert job["result"]["requeued"] == 0
+
+
+def test_sharepoint_job_without_creds_errors(client):
+    # 无 MS_* 凭证时 job 应优雅失败（error），不触网
+    r = client.post("/api/jobs/sharepoint", json={"site": ""})
+    assert r.status_code == 200
+    job = _poll(client, r.json()["job_id"])
+    assert job["status"] == "error"
+    assert "SharePoint" in (job["error"] or "")
+
+
+def test_wecom_chat_job_degrades_when_sdk_absent(client):
+    # 无原生存档 SDK 时不报错，返回 {ready: False}（降级仅迁群文件）
+    r = client.post("/api/jobs/wecom-chat", json={"chat_id": "chatX"})
+    assert r.status_code == 200
+    job = _poll(client, r.json()["job_id"])
+    assert job["status"] == "success", job
+    assert job["result"]["ready"] is False

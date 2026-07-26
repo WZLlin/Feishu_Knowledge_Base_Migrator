@@ -252,6 +252,31 @@ def job_scan_local(payload: dict = Body(...)):
     return {"job_id": JOBS.start("scan-local", fn)}
 
 
+@app.post("/api/jobs/sharepoint")
+def job_sharepoint(payload: dict = Body(...)):
+    from ..connectors.sharepoint import SharePointConnector
+
+    site = (payload or {}).get("site", "").strip()
+
+    def fn(ctx: JobContext):
+        s = S()
+        if not (s.ms_tenant_id and s.ms_client_id and s.ms_client_secret):
+            raise RuntimeError("未配置 SharePoint 凭证（MS_TENANT_ID/MS_CLIENT_ID/MS_CLIENT_SECRET）")
+        led, orch = _orch(s)
+        try:
+            site_filter = site or s.ms_site_filter or None
+            ctx.log(f"SharePoint 盘点（站点={site_filter or '全部根站点'}）…")
+            conn = SharePointConnector(s.ms_tenant_id, s.ms_client_id, s.ms_client_secret,
+                                       s.work_dir, site_filter=site_filter)
+            stats = orch.ingest(conn, progress=_mk_progress(ctx))
+            ctx.log(f"✅ SharePoint 盘点+抽取完成：{stats}")
+            return stats
+        finally:
+            led.close()
+
+    return {"job_id": JOBS.start("sharepoint", fn)}
+
+
 @app.post("/api/jobs/wedrive")
 def job_wedrive(payload: dict = Body(...)):
     from ..connectors.wedrive import WeDriveConnector
@@ -278,7 +303,13 @@ def job_wedrive(payload: dict = Body(...)):
 
 @app.post("/api/jobs/wecom-chat")
 def job_wecom_chat(payload: dict = Body(...)):
-    """一期：群聊会话存档就绪性检测（占位）。需原生 SDK + RSA 私钥方可真正拉取。"""
+    """群聊会话存档：给了 chat_id 且 SDK 就绪则真正迁移，否则仅做就绪性检测。
+
+    未就绪（无原生 SDK / 无 RSA 私钥）时不报错，返回 {ready: False}，
+    降级为「仅迁群文件」——用微盘连接器迁群文件即可。
+    """
+    chat_id = (payload or {}).get("chat_id", "").strip()
+    chat_name = (payload or {}).get("name", "").strip()
 
     def fn(ctx: JobContext):
         from ..connectors.wecom_chat import ChatArchiveConnector
@@ -290,13 +321,25 @@ def job_wecom_chat(payload: dict = Body(...)):
             pem = Path(s.wecom_chat_private_key_file).read_text(encoding="utf-8")
         else:
             ctx.log(f"⚠️ 未找到 RSA 私钥文件：{s.wecom_chat_private_key_file}")
-        conn = ChatArchiveConnector(s.wecom_corp_id, s.wecom_chat_archive_secret, pem)
-        if conn.online:
-            ctx.log("✅ 会话存档 SDK 就绪，可进行群聊迁移（POC 流程见 SOP 阶段5）")
+        conn = ChatArchiveConnector(s.wecom_corp_id, s.wecom_chat_archive_secret, pem,
+                                    sdk_lib_path=s.wecom_chat_sdk_lib_path)
+        if not conn.online:
+            ctx.log("未就绪：需开通会话内容存档 + 部署原生 WeWorkFinanceSdk + 配置 RSA 私钥")
+            ctx.log("（未就绪时降级为「仅迁群文件」——用微盘连接器迁群文件即可）")
+            return {"ready": False}
+        ctx.log("✅ 会话存档 SDK 就绪")
+        if not chat_id:
+            ctx.log("未指定 chat_id：仅做就绪性检测。填入群聊 ID 即可触发迁移。")
             return {"ready": True}
-        ctx.log("未就绪：需开通会话内容存档 + 部署原生 WeWorkFinanceSdk + 配置 RSA 私钥")
-        ctx.log("（未就绪时降级为「仅迁群文件」——用微盘连接器迁群文件即可）")
-        return {"ready": False}
+        led, orch = _orch(s)
+        try:
+            ctx.log(f"开始迁移群聊 {chat_id}（按天聚合会话片段进标准管线）…")
+            stats = orch.ingest_chat(conn, chat_id, chat_name=chat_name,
+                                     progress=_mk_progress(ctx))
+            ctx.log(f"✅ 群聊迁移完成：{stats}（随后跑「去重+分类」→确认→写飞书/挂 Wiki）")
+            return {"ready": True, **stats}
+        finally:
+            led.close()
 
     return {"job_id": JOBS.start("wecom-chat", fn)}
 
