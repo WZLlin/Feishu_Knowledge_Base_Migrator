@@ -31,7 +31,7 @@ from ..models import DedupVerdict, SourceItem, Stage
 from ..taxonomy import Taxonomy
 from ..utils.naming import canonical_name
 from .classify import Classifier
-from .dedup import NearDuplicateIndex
+from .dedup import NearDuplicateIndex, SemanticIndex
 from .extract import extract_text
 
 
@@ -141,9 +141,13 @@ class Orchestrator:
         from ..models import SourceType
         from ..connectors.wecom_chat import aggregate_messages
 
-        stats = {"batches": 0, "messages": 0, "segments": 0, "skipped_existing": 0}
+        stats = {"batches": 0, "messages": 0, "segments": 0, "skipped_existing": 0,
+                 "files": 0, "files_skipped": 0}
         chat_dir = os.path.join(self.work_dir, "chat")
-        os.makedirs(chat_dir, exist_ok=True)
+        file_dir = os.path.join(chat_dir, "files")
+        os.makedirs(file_dir, exist_ok=True)
+        # 仅当连接器在线且实现 fetch_media 时下载群文件（离线/旧假连接器向后兼容跳过）
+        media_ok = getattr(connector, "online", False) and hasattr(connector, "fetch_media")
 
         row = self.led.get_chat(chat_id)
         seq = int(row["last_message_seq"]) if row and row["last_message_seq"] else 0
@@ -189,19 +193,25 @@ class Orchestrator:
             existing = self.led.get(key)
             if existing and existing["stage"] in done_stages:
                 stats["skipped_existing"] += 1   # 已进入后续阶段，幂等跳过
-                continue
-            text = seg.to_text()
-            blob = os.path.join(chat_dir, f"{chat_id}_{seg.date}.md")
-            with open(blob, "w", encoding="utf-8") as f:
-                f.write(text)
-            sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
-            item.local_blob_path = blob
-            item.content_sha256 = sha
-            self.led.upsert_discovered(item)      # 幂等登记（已存在则不覆盖）
-            self._save_text(key, text)
-            self.led.update(key, stage=Stage.EXTRACTED.value, content_sha256=sha,
-                            local_blob_path=blob, dedup_cluster_id=sha, error_detail=None)
-            stats["segments"] += 1
+            else:
+                text = seg.to_text()
+                blob = os.path.join(chat_dir, f"{chat_id}_{seg.date}.md")
+                with open(blob, "w", encoding="utf-8") as f:
+                    f.write(text)
+                sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+                item.local_blob_path = blob
+                item.content_sha256 = sha
+                self.led.upsert_discovered(item)      # 幂等登记（已存在则不覆盖）
+                self._save_text(key, text)
+                self.led.update(key, stage=Stage.EXTRACTED.value, content_sha256=sha,
+                                local_blob_path=blob, dedup_cluster_id=sha, error_detail=None)
+                stats["segments"] += 1
+
+            # 群文件：下载媒体 -> 抽取 -> 登记为 WECOM_CHAT 文件项进标准管线
+            if media_ok:
+                for f in seg.files:
+                    self._ingest_chat_file(connector, chat_id, name or chat_id,
+                                           seg.date, f, file_dir, done_stages, stats)
 
         # 3) 回写群聊台账（增量游标 + 成员快照 + 状态）
         self.led.upsert_chat(
@@ -209,6 +219,69 @@ class Orchestrator:
             migration_status="completed" if (segments or row) else "partial",
         )
         return stats
+
+    def _ingest_chat_file(self, connector, chat_id: str, chat_name: str, date: str,
+                          f: dict, file_dir: str, done_stages: tuple, stats: dict) -> None:
+        """下载一条群文件消息的媒体，抽取文本，登记为 WECOM_CHAT 文件项(EXTRACTED)。
+
+        幂等：已进入后续阶段的同 sdkfileid 文件跳过；精确去重：sha 命中已入库者标
+        SKIPPED_DUPLICATE。sdkfileid 缺失或下载失败则记 files_skipped，不阻断整批。
+        """
+        from ..models import SourceType
+
+        sdkfileid = f.get("sdkfileid") or ""
+        filename = f.get("filename") or sdkfileid or "群文件"
+        if not sdkfileid:
+            stats["files_skipped"] += 1
+            return
+        fitem = SourceItem(
+            source_type=SourceType.WECOM_CHAT, source_id=f"{chat_id}:file:{sdkfileid}",
+            source_path=f"wecom_chat://{chat_id}/file/{sdkfileid}",
+            original_name=filename, size=int(f.get("filesize", 0) or 0),
+            raw_metadata={"chat_id": chat_id, "kind": "file", "date": date,
+                          "sdkfileid": sdkfileid},
+        )
+        key = fitem.stable_key()
+        existing = self.led.get(key)
+        if existing and existing["stage"] in done_stages:
+            stats["files_skipped"] += 1        # 幂等跳过
+            return
+        try:
+            data = connector.fetch_media(sdkfileid)
+        except Exception as e:  # noqa: BLE001  单个文件下载失败不阻断整批
+            self.led.upsert_discovered(fitem)
+            self.led.update(key, stage=Stage.FAILED.value,
+                            error_detail=f"fetch: 群文件下载失败 {e}")
+            stats["files_skipped"] += 1
+            return
+        sha = hashlib.sha256(data).hexdigest()
+        # 精确去重：sha 已在库且已入后续阶段 -> 跳过
+        dups = [r for r in self.led.find_by_sha(sha)
+                if r["stable_key"] != key
+                and r["stage"] in (Stage.LOADED.value, Stage.CONFIRMED.value,
+                                   Stage.CLASSIFIED.value, Stage.DEDUPED.value,
+                                   Stage.EXTRACTED.value)]
+        local = os.path.join(file_dir, f"{sdkfileid[:32]}_{filename}")
+        with open(local, "wb") as fp:
+            fp.write(data)
+        fitem.local_blob_path = local
+        fitem.content_sha256 = sha
+        self.led.upsert_discovered(fitem)
+        if dups:
+            self.led.update(key, stage=Stage.SKIPPED_DUPLICATE.value,
+                            dedup_verdict=DedupVerdict.EXACT_DUPLICATE.value,
+                            dedup_cluster_id=sha, content_sha256=sha,
+                            local_blob_path=local)
+            stats["files_skipped"] += 1
+            return
+        result = extract_text(local)
+        text = result.text if result else ""
+        note = "" if (result and result.ok) else (result.note if result else "no blob")
+        self._save_text(key, text)
+        self.led.update(key, stage=Stage.EXTRACTED.value, content_sha256=sha,
+                        local_blob_path=local, dedup_cluster_id=sha,
+                        error_detail=note or None)
+        stats["files"] += 1
 
     # ── 阶段 2：dedup（近似）──────────────────────────────
 
@@ -234,6 +307,66 @@ class Orchestrator:
                 self.led.update(key, stage=Stage.DEDUPED.value,
                                 dedup_verdict=DedupVerdict.UNIQUE.value)
                 stats["unique"] += 1
+        return stats
+
+    # ── 阶段 2b：semantic（语义近邻，周期性疑似重复审查）────
+
+    # 语义审查覆盖的阶段：已过精确/近似去重、仍在库的条目（不含已判重/失败）
+    _SEMANTIC_STAGES = (Stage.DEDUPED, Stage.CLASSIFIED, Stage.CONFIRMED, Stage.LOADED)
+
+    def semantic_pass(self, progress: ProgressCb = None, index=None,
+                      cos_threshold: float = 0.90) -> dict:
+        """语义去重（第三层）：对已过精确/近似去重的条目建向量索引，把 cos≥阈值 的
+        相似对里的一方标 SEMANTIC_CANDIDATE 进人工队列——**不改 stage、不自动删**。
+
+        重依赖（sentence-transformers + faiss）缺失时该层自动跳过（available=False），
+        不阻断管线。index 可注入（测试/自定义模型）；缺省内建 SemanticIndex。
+
+        pending_review() 以 dedup_verdict='semantic_candidate' 直接纳入人工队列，
+        故标记只写 dedup_verdict + error_detail，保留原 stage 不回退。
+        """
+        stats = {"available": True, "indexed": 0, "pairs": 0, "candidates": 0}
+        idx = index if index is not None else SemanticIndex(cos_threshold=cos_threshold)
+        if not idx.available:
+            stats["available"] = False
+            _report(progress, 0, 0, "语义去重不可用：缺 sentence-transformers/faiss，跳过")
+            return stats
+
+        # 收集候选集：跨相关阶段、排除已判近似重复的条目，取有正文者
+        rows = []
+        seen_keys: set[str] = set()
+        for st in self._SEMANTIC_STAGES:
+            for row in self.led.items_in_stage(st):
+                key = row["stable_key"]
+                if key in seen_keys:
+                    continue
+                if row["dedup_verdict"] == DedupVerdict.NEAR_DUPLICATE.value:
+                    continue
+                seen_keys.add(key)
+                rows.append(row)
+
+        items = [(r["stable_key"], self.load_text(r["stable_key"])) for r in rows]
+        items = [(k, t) for k, t in items if t.strip()]
+        stats["indexed"] = len(items)
+        _report(progress, 0, len(items), f"语义索引：{len(items)} 条")
+        if not items:
+            return stats
+
+        idx.build(items)
+        pairs = idx.candidates()
+        stats["pairs"] = len(pairs)
+        # 每对保留一方（key_a，通常更早），把另一方(key_b)标为疑似进人工队列
+        marked: set[str] = set()
+        for done, (key_a, key_b, sim) in enumerate(pairs, 1):
+            _report(progress, done, len(pairs), f"语义疑似 {done}/{len(pairs)}")
+            if key_b in marked:
+                continue
+            self.led.update(
+                key_b, dedup_verdict=DedupVerdict.SEMANTIC_CANDIDATE.value,
+                error_detail=f"语义疑似重复 of {key_a} cos={sim:.2f}",
+            )
+            marked.add(key_b)
+        stats["candidates"] = len(marked)
         return stats
 
     # ── 阶段 3：classify ──────────────────────────────────
@@ -451,6 +584,76 @@ class Orchestrator:
                 self.led.update(key, error_detail=f"wiki: {e}")
                 stats["failed"] += 1
         return stats
+
+    # ── 群聊治理：成员→协作者映射 + 群名打标 ────────────────
+
+    def map_chat_collaborators(self, writer, chat_id: str, user_map: dict[str, str],
+                               perm: str = "view", progress: ProgressCb = None) -> dict:
+        """按群成员快照给该群产出的每个飞书文档逐个加协作者（默认 view）。
+
+        user_map: {wecom_userid: feishu_open_id}（本地 JSON 维护）。未命中映射的成员
+        进 unmapped 人工清单，不阻断。每个群文档单独加（决策：per-doc 粒度）：优先用
+        wiki_node_token(obj_type=wiki)，否则 feishu_token(obj_type=file)。
+
+        writer 为 None 时 dry-run：仅统计将加的 (文档, 成员) 数，不真实调用。
+        """
+        stats = {"docs": 0, "members": 0, "granted": 0, "failed": 0,
+                 "unmapped": [], "dry_run": 0}
+        chat = self.led.get_chat(chat_id)
+        if not chat:
+            stats["error"] = f"台账无群 {chat_id} 记录"
+            return stats
+        members = json.loads(chat["member_snapshot"]) if chat["member_snapshot"] else []
+        mapped: list[str] = []
+        for uid in members:
+            fid = user_map.get(uid)
+            if fid:
+                mapped.append(fid)
+            else:
+                stats["unmapped"].append(uid)
+        stats["members"] = len(mapped)
+
+        docs = [r for r in self.led.items_for_chat(chat_id)
+                if r["wiki_node_token"] or r["feishu_token"]]
+        stats["docs"] = len(docs)
+        total = len(docs) * max(len(mapped), 1)
+        done = 0
+        for row in docs:
+            token = row["wiki_node_token"] or row["feishu_token"]
+            obj_type = "wiki" if row["wiki_node_token"] else "file"
+            for fid in mapped:
+                done += 1
+                _report(progress, done, total,
+                        f"加协作者 {row['original_name'] or token}")
+                if writer is None:
+                    stats["dry_run"] += 1
+                    continue
+                try:
+                    writer.add_collaborator(token, obj_type, fid, perm=perm)
+                    stats["granted"] += 1
+                except Exception as e:  # noqa: BLE001  单个失败进清单不阻断
+                    stats["failed"] += 1
+                    stats["unmapped"].append(f"{fid}@{obj_type}:{e}")
+        return stats
+
+    def tag_chat_group(self, group_connector, chat_id: str,
+                       feishu_url: str = "", progress: ProgressCb = None) -> dict:
+        """群名打标「原群名[已备份]」（尽力改名，失败降级发通知，再失败记 manual）。
+
+        group_connector 为 WeComGroupConnector；结果 tag_status 回写 chat_migrations。
+        group_connector 为 None 时 dry-run：仅回显将执行的动作。
+        """
+        chat = self.led.get_chat(chat_id)
+        original = (chat["chat_name_original"] if chat else "") or ""
+        if group_connector is None:
+            _report(progress, 0, 1, f"[dry-run] 将打标群 {chat_id}「{original}[已备份]」")
+            return {"tag_status": "dry_run", "detail": f"预览：{original}[已备份]"}
+        _report(progress, 0, 1, f"群名打标 {chat_id}…")
+        res = group_connector.tag_group(chat_id, original, feishu_url=feishu_url)
+        self.led.upsert_chat(chat_id, tag_status=res.get("tag_status"),
+                             error_detail=res.get("detail"))
+        _report(progress, 1, 1, f"群名打标：{res.get('tag_status')} — {res.get('detail')}")
+        return res
 
     # ── 工具 ──────────────────────────────────────────────
 

@@ -367,6 +367,75 @@ def job_pipeline(payload: dict = Body(...)):
     return {"job_id": JOBS.start("pipeline", fn)}
 
 
+@app.post("/api/jobs/semantic")
+def job_semantic(payload: dict = Body(...)):
+    """语义去重（第三层）：标疑似重复进人工队列，不自动删。缺重依赖时自动跳过。"""
+    threshold = float((payload or {}).get("threshold", 0.90))
+
+    def fn(ctx: JobContext):
+        s = S()
+        led, orch = _orch(s)
+        try:
+            ctx.log("语义去重（cos≥%.2f）…" % threshold)
+            stats = orch.semantic_pass(progress=_mk_progress(ctx), cos_threshold=threshold)
+            if not stats.get("available"):
+                ctx.log("⚠️ 语义去重不可用：需安装 sentence-transformers + faiss-cpu，已跳过")
+            ctx.log(f"✅ 语义去重完成：{stats}")
+            return stats
+        finally:
+            led.close()
+
+    return {"job_id": JOBS.start("semantic", fn)}
+
+
+@app.post("/api/jobs/govern-chat")
+def job_govern_chat(payload: dict = Body(...)):
+    """群聊治理：成员→协作者映射 + 群名打标（dry_run=True 仅预览）。"""
+    chat_id = (payload or {}).get("chat_id", "").strip()
+    feishu_url = (payload or {}).get("url", "").strip()
+    dry_run = bool((payload or {}).get("dry_run", True))
+    if not chat_id:
+        return JSONResponse({"error": "请填写群聊 ID（chat_id）"}, status_code=400)
+
+    def fn(ctx: JobContext):
+        import json as _json
+
+        from ..connectors.wecom_group import WeComGroupConnector
+        from ..feishu.client import FeishuClient
+        from ..feishu.writer import FeishuWriter
+
+        s = S()
+        user_map = {}
+        if s.wecom_feishu_user_map and os.path.exists(s.wecom_feishu_user_map):
+            user_map = _json.loads(Path(s.wecom_feishu_user_map).read_text(encoding="utf-8"))
+        else:
+            ctx.log(f"⚠️ 未找到成员映射文件：{s.wecom_feishu_user_map or '(未配置 WECOM_FEISHU_USER_MAP)'}")
+        led, orch = _orch(s)
+        try:
+            writer = None
+            group_conn = None
+            if dry_run:
+                ctx.log(f"[dry-run] 仅预览治理动作，不真实写入。映射条目={len(user_map)}")
+            else:
+                if not (s.feishu_app_id and s.feishu_app_secret):
+                    raise RuntimeError("未配置飞书 App ID/Secret")
+                writer = FeishuWriter(FeishuClient(s.feishu_app_id, s.feishu_app_secret))
+                group_conn = WeComGroupConnector(s.wecom_corp_id, s.wecom_app_secret)
+            ctx.log("① 成员→协作者映射…")
+            c = orch.map_chat_collaborators(writer, chat_id, user_map,
+                                            progress=_mk_progress(ctx))
+            ctx.log(f"协作者映射：{c}")
+            ctx.log("② 群名打标…")
+            t = orch.tag_chat_group(group_conn, chat_id, feishu_url=feishu_url,
+                                    progress=_mk_progress(ctx))
+            ctx.log(f"群名打标：{t}")
+            return {"collaborators": c, "tag": t}
+        finally:
+            led.close()
+
+    return {"job_id": JOBS.start("govern-chat", fn)}
+
+
 @app.post("/api/jobs/bootstrap")
 def job_bootstrap(payload: dict = Body(...)):
     mode = (payload or {}).get("mode", "drive")

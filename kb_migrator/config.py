@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     )
     # 会话存档原生库(WeWorkFinanceSdk)路径；为空则群聊连接器 online=False（离线降级）
     wecom_chat_sdk_lib_path: str = Field(default="", alias="WECOM_CHAT_SDK_LIB")
+    # 群名打标用的应用 secret（appchat 改名/发消息，仅对该 app 自建的服务群有效）
+    wecom_app_secret: str = Field(default="", alias="WECOM_APP_SECRET")
+    # 群成员→飞书协作者映射：JSON 文件路径 {wecom_userid: feishu_open_id}，人工维护
+    wecom_feishu_user_map: str = Field(default="", alias="WECOM_FEISHU_USER_MAP")
 
     def ensure_dirs(self) -> None:
         """创建运行所需的本地目录（台账所在目录、工作缓存目录）。"""

@@ -32,9 +32,10 @@ cp .env.example .env         # 填入凭证（凭证只从环境读取，不写�
 python cli.py scan-local  D:/知识资料     # 本地文件夹：盘点 + 抽取 + 精确去重(SHA256)
 python cli.py scan-sharepoint             # SharePoint(MS Graph)；--site 关键字或 MS_SITE_FILTER 收窄站点
 python cli.py scan-wedrive 空间ID1,空间ID2  # 企业微信微盘(仅普通文件；服务器 IP 须在可信白名单)
-python cli.py migrate-chat <群聊ID> --name "群名"  # 群聊会话存档→按天聚合为会话片段进管线(需存档 SDK + RSA 私钥)
+python cli.py migrate-chat <群聊ID> --name "群名"  # 群聊会话存档→按天聚合为会话片段进管线；在线时顺带下载群文件(需存档 SDK + RSA 私钥)
 
 python cli.py dedup                       # 近似去重(MinHashLSH，中文字符 4-gram)
+python cli.py semantic                     # 语义去重(第三层，标疑似重复进人工队列；需可选重依赖，缺则自动跳过)
 python cli.py classify                    # AI 分类(无 API Key 时走离线启发式)
 python cli.py stats                       # 各阶段条目数 + 沉淀比例
 python cli.py review                      # 人工确认队列
@@ -50,6 +51,10 @@ python cli.py retry-failed                  # 重试写飞书失败项(load 阶�
 # 阶段5(Wiki 模式)：把已 load 的文件挂进 Wiki 分类节点(需先 bootstrap --wiki + OAuth)
 python cli.py push-to-wiki --dry-run        # 预览：待挂入数 + Wiki 节点分类数
 python cli.py push-to-wiki --commit         # 以【用户身份】重传并挂入 Wiki，清理租户旧副本
+
+# 群聊治理（写飞书之后）：成员→协作者映射 + 群名打标「原群名[已备份]」
+python cli.py govern-chat <群聊ID> --url "<飞书入口链接>"           # 默认 dry-run：预览将加的协作者 + 打标动作
+python cli.py govern-chat <群聊ID> --url "<飞书入口链接>" --commit  # 真写：逐个群文档加协作者 + 尽力改群名(失败降级发通知/记人工)
 
 # Web 控制台（单页可视化，所有基本操作一页完成）
 uvicorn kb_migrator.web.app:app --host 127.0.0.1 --port 8000
@@ -130,6 +135,10 @@ Windows 也可**双击** `start-console.bat` / `stop-console.bat`（内部就是
 
 1. 企业微信**原生微文档/智能表格无法 API 批量导出**，仅微盘里的文件（Word/Excel/PDF）可迁。
 2. 企业微信**群聊历史**须开通「会话内容存档」且成员逐个授权，消息保留期有限。
+3. **群名打标**：企业微信只允许应用改名/发消息到**该应用自建的服务群**；对用户自建群
+   `govern-chat` 会尽力改名→降级发通知→再不行记 manual（回写台账 `tag_status`，交群主手动改名）。
+4. **成员→协作者映射**需人工维护一份本地 JSON（`WECOM_FEISHU_USER_MAP` 指向
+   `{企业微信userid: 飞书open_id}`）；未命中的成员进 `unmapped` 人工清单，不阻断整批。
 
 ## 测试
 

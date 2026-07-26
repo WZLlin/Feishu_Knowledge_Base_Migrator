@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
-from .models import SourceItem, Stage
+from .models import SourceItem, SourceType, Stage
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS items (
@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS chat_migrations (
     feishu_url          TEXT,
     last_message_seq    TEXT,   -- 增量游标
     member_snapshot     TEXT,   -- JSON: 群成员 userid 列表快照
+    tag_status          TEXT,   -- 群名打标结果: renamed/notified/manual/未打标
     error_detail        TEXT,
     first_migrated_at   TEXT,
     last_synced_at      TEXT
@@ -81,6 +82,11 @@ class Ledger:
         for col, decl in (("wiki_node_token", "TEXT"),):
             if col not in cols:
                 self.conn.execute(f"ALTER TABLE items ADD COLUMN {col} {decl}")
+        chat_cols = {r["name"] for r in
+                     self.conn.execute("PRAGMA table_info(chat_migrations)")}
+        for col, decl in (("tag_status", "TEXT"),):
+            if col not in chat_cols:
+                self.conn.execute(f"ALTER TABLE chat_migrations ADD COLUMN {col} {decl}")
         self.conn.commit()
 
     def close(self) -> None:
@@ -145,6 +151,17 @@ class Ledger:
     def find_by_sha(self, sha256: str) -> list[sqlite3.Row]:
         return self.conn.execute(
             "SELECT * FROM items WHERE content_sha256=?", (sha256,)
+        ).fetchall()
+
+    def items_for_chat(self, chat_id: str) -> list[sqlite3.Row]:
+        """某群产出的所有条目（会话片段 chat_id:date + 群文件 chat_id:file:xxx）。
+
+        source_id 以 'chat_id:' 前缀区分；冒号边界使 chat42 不会误匹配 chat420。
+        """
+        return self.conn.execute(
+            "SELECT * FROM items WHERE source_type=? AND source_id LIKE ? "
+            "ORDER BY created_at",
+            (SourceType.WECOM_CHAT.value, chat_id + ":%"),
         ).fetchall()
 
     def pending_review(self) -> list[sqlite3.Row]:

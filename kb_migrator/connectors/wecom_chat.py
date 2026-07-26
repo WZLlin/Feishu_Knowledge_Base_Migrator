@@ -147,3 +147,22 @@ class ChatArchiveConnector:
             out.append(json.loads(plain))
             new_seq = max(new_seq, int(rec.get("seq", new_seq)))
         return out, new_seq
+
+    def fetch_media(self, sdkfileid: str) -> bytes:
+        """按 sdkfileid 换取媒体（群文件）二进制。
+
+        原生 SDK 的 GetMediaData 分块返回（大文件），用 out_index 游标续拉直到
+        is_finish；离线时抛 RuntimeError（编排器降级为「不迁群文件正文」）。
+        """
+        if not self._online:
+            raise RuntimeError("会话存档 SDK 不可用：无法下载群文件媒体")
+        chunks: list[bytes] = []
+        index = ""
+        for _ in range(100000):     # 分块上限护栏，避免异常游标死循环
+            data, out_index, is_finish = self._sdk.get_media_data(index, sdkfileid)
+            if data:
+                chunks.append(data)
+            if is_finish or not out_index:
+                break
+            index = out_index
+        return b"".join(chunks)

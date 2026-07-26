@@ -35,9 +35,14 @@
 python cli.py scan-local <路径>              # 本地文件夹：盘点+抽取+精确去重
 python cli.py scan-sharepoint                # SharePoint(MS Graph)；--site 关键字或 MS_SITE_FILTER 收窄站点
 python cli.py scan-wedrive <空间ID1,空间ID2>  # 企业微信微盘（仅普通文件；服务器 IP 须在可信白名单）
-python cli.py dedup                          # 近似去重
+python cli.py dedup                          # 近似去重（MinHashLSH）
+python cli.py semantic                       # 语义去重（第三层，可选）
 python cli.py classify                       # AI 分类
 ```
+- **语义去重（第三层）**：`semantic` 用嵌入 + FAISS 找 cos≥阈值（默认 0.90，`--threshold` 调）的疑似
+  重复对，把其中一方标 `dedup_verdict=semantic_candidate` **进人工队列**（不改 stage、不自动删），
+  由 owner 定夺。**需可选重依赖** sentence-transformers + faiss-cpu；未装则 `available=False` 优雅跳过
+  不阻断。Web 控制台入口 `POST /api/jobs/semantic`。
 - **SharePoint**：需 `MS_TENANT_ID`/`MS_CLIENT_ID`/`MS_CLIENT_SECRET`（应用权限，管理员同意）；
   站点多时用 `--site 关键字` 或 `.env` 的 `MS_SITE_FILTER` 收窄，避免全量递归。
 - **微盘**：仅普通文件（Word/Excel/PDF/PPT）可迁，原生微文档跳过并记 note；应用须为每个微盘空间成员。
@@ -94,11 +99,30 @@ python cli.py migrate-chat <群聊ID> --name "群名" --limit 1000
    （RSA 私钥**只填路径**、独立隔离托管，不粘贴内容）、`WECOM_CHAT_SDK_LIB`（原生 WeWorkFinanceSdk 库路径）。
 2. 选「成员少、已授权」试点群，跑 `migrate-chat`。命令内部：抽取（`seq` 增量 + 私钥解密）→
    **按自然日聚合成「会话片段」**，每片段渲染为 `.md` 作为 `SourceItem(WECOM_CHAT)` 进标准管线（置 EXTRACTED）。
+   **在线时顺带下载群文件**：消息里的文件按 `sdkfileid` 拉媒体字节落盘，登记为独立 `SourceItem`
+   （键 `wecom_chat:<群>:file:<sdkfileid>`），与会话片段一样进管线（`stats["files"]` 计数；下载失败记
+   `error_detail="fetch: 群文件下载失败"` 不阻断）。离线假连接器无 `fetch_media` 时跳过、向后兼容。
 3. 随后照常 `dedup` → `classify` → 确认 → `load`/`push-to-wiki`，与文件走同一后续流程。
 4. **增量**：台账 `last_message_seq` 作游标，重跑只拉新消息；已推进到后续阶段（已分类/确认/入库）的
    旧片段跳过、不回退。`member_snapshot`（群成员快照）回写台账，供权限映射。
 5. **未就绪降级**：未开通存档 / 无原生 SDK / 无私钥时 `online=False`，命令**不报错**，打印就绪指引并
    提示降级为「仅迁群文件」——群文件用 `scan-wedrive` 迁即可。Web 控制台「迁移」页做就绪性检测。
+
+### 阶段 5.5 · 群聊治理（写飞书之后）：协作者映射 + 群名打标
+
+```
+python cli.py govern-chat <群聊ID> --url "<飞书入口链接>"           # 默认 dry-run 预览
+python cli.py govern-chat <群聊ID> --url "<飞书入口链接>" --commit  # 真写
+```
+1. **成员→协作者映射**：人工维护一份本地 JSON（`.env` 的 `WECOM_FEISHU_USER_MAP` 指向
+   `{企业微信userid: 飞书open_id}`）。`govern-chat` 读群成员快照，**给该群产出的每个飞书文档**逐个
+   已映射成员加协作者（默认 `view`；wiki 节点用 `wiki_node_token`、云文件用 `feishu_token`）。
+   未命中映射的成员进 `unmapped` 人工清单，不阻断。
+2. **群名打标「原群名[已备份]」**：企业微信**只允许应用改名/发消息到该应用自建的服务群**。故按
+   「尽力而为 + 降级」：先 `appchat/update` 改名 → 失败则 `appchat/send` 发含飞书入口的通知 →
+   再失败记 `manual`（回写台账 `tag_status`，交群主手动改名）。需 `.env` 配 `WECOM_APP_SECRET`。
+3. **默认 dry-run**：不加 `--commit` 只预览「将加的协作者数 + 打标动作」，确认无误再真写。
+   Web 控制台入口 `POST /api/jobs/govern-chat`（同样 `dry_run` 缺省 True）。
 
 ## 断点续跑与幂等
 

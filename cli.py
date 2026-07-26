@@ -106,9 +106,51 @@ def cmd_migrate_chat(args):
     led.close()
 
 
+def _load_user_map(path):
+    """读 {wecom_userid: feishu_open_id} 映射 JSON；缺文件返回空表（不阻断）。"""
+    import json
+    import os
+
+    if path and os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def cmd_govern_chat(args):
+    """群聊治理：成员→协作者映射 + 群名打标（默认 dry-run，--commit 才真写）。"""
+    s, _tx, led, orch = _bootstrap()
+    user_map = _load_user_map(s.wecom_feishu_user_map)
+    writer = None
+    group_conn = None
+    if args.commit:
+        writer = _feishu_writer(s)
+        from kb_migrator.connectors.wecom_group import WeComGroupConnector
+        group_conn = WeComGroupConnector(s.wecom_corp_id, s.wecom_app_secret)
+    else:
+        print(f"[dry-run] 预览治理动作，不真实写入（加 --commit 才写）。"
+              f"映射表条目={len(user_map)}")
+    if not user_map:
+        print("⚠️ 成员→飞书映射为空：请在 WECOM_FEISHU_USER_MAP 指向的 JSON 里维护 "
+              "{企业微信userid: 飞书open_id}；未映射成员会进人工清单。")
+    print("collaborators:", orch.map_chat_collaborators(writer, args.chat_id, user_map))
+    print("tag-group:", orch.tag_chat_group(group_conn, args.chat_id, feishu_url=args.url))
+    led.close()
+
+
 def cmd_dedup(args):
     _s, _tx, led, orch = _bootstrap()
     print("dedup:", orch.dedup_pass(threshold=args.threshold))
+    led.close()
+
+
+def cmd_semantic(args):
+    """语义去重（第三层）：标疑似重复进人工队列，不自动删。缺重依赖时自动跳过。"""
+    _s, _tx, led, orch = _bootstrap()
+    stats = orch.semantic_pass(cos_threshold=args.threshold)
+    if not stats.get("available"):
+        print("语义去重不可用：需安装 sentence-transformers + faiss-cpu（可选重依赖），已跳过。")
+    print("semantic:", stats)
     led.close()
 
 
@@ -291,6 +333,18 @@ def main(argv=None):
     sp = sub.add_parser("dedup", help="近似去重")
     sp.add_argument("--threshold", type=float, default=0.75)
     sp.set_defaults(func=cmd_dedup)
+
+    sp = sub.add_parser("semantic", help="语义去重(第三层，标疑似重复进人工队列；需可选重依赖)")
+    sp.add_argument("--threshold", type=float, default=0.90, help="余弦相似度阈值")
+    sp.set_defaults(func=cmd_semantic)
+
+    sp = sub.add_parser("govern-chat",
+                        help="群聊治理：成员→协作者映射 + 群名打标（默认 dry-run，--commit 才真写）")
+    sp.add_argument("chat_id", help="群聊 ID（wecom_chat_id）")
+    sp.add_argument("--url", default="", help="飞书入口链接（打标通知/人工清单用）")
+    sp.add_argument("--commit", action="store_true", help="真实写入（不加则仅预览）")
+    sp.add_argument("--dry-run", action="store_true", help="（默认行为）仅预览，不写入")
+    sp.set_defaults(func=cmd_govern_chat)
 
     sp = sub.add_parser("classify", help="AI 分类")
     sp.set_defaults(func=cmd_classify)

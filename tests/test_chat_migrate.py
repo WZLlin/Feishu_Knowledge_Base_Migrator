@@ -48,6 +48,20 @@ class _FakeChat:
         return list(self._msgs), self._new_seq
 
 
+class _FakeChatWithMedia(_FakeChat):
+    """在线连接器：额外实现 fetch_media，用于验证群文件下载接线。"""
+    online = True
+
+    def __init__(self, msgs, new_seq, media):
+        super().__init__(msgs, new_seq)
+        self._media = media          # {sdkfileid: bytes}
+        self.media_calls = []
+
+    def fetch_media(self, sdkfileid):
+        self.media_calls.append(sdkfileid)
+        return self._media[sdkfileid]
+
+
 def _orch(tmp_path):
     led = Ledger(str(tmp_path / "ledger.db"))
     tx = Taxonomy.load(TAX)
@@ -85,6 +99,34 @@ def test_ingest_chat_segment_text_content(tmp_path):
     assert "第二天继续" in text
     assert "[文件] 方案.docx" in text        # 文件消息进正文
     assert "revoke" not in text              # 撤回类被剔除
+    led.close()
+
+
+def test_ingest_chat_downloads_group_files_when_online(tmp_path):
+    led, orch = _orch(tmp_path)
+    blob = "file-bytes-方案".encode("utf-8")
+    conn = _FakeChatWithMedia(_MSGS, new_seq=5, media={"F1": blob})
+    stats = orch.ingest_chat(conn, "chat42")
+
+    assert stats["files"] == 1                 # 群文件被下载并登记
+    assert conn.media_calls == ["F1"]          # 按 sdkfileid 拉取媒体
+    # 文件项：WECOM_CHAT 的 EXTRACTED 条目，键 = wecom_chat:chat42:file:F1
+    fkey = f"{SourceType.WECOM_CHAT.value}:chat42:file:F1"
+    frow = led.get(fkey)
+    assert frow is not None and frow["stage"] == Stage.EXTRACTED.value
+    assert frow["original_name"] == "方案.docx"
+    assert frow["content_sha256"]
+    # 落盘的二进制与下载一致
+    with open(frow["local_blob_path"], "rb") as fp:
+        assert fp.read() == blob
+    led.close()
+
+
+def test_ingest_chat_offline_skips_files(tmp_path):
+    # 旧式假连接器无 online/fetch_media：向后兼容，不下载群文件、不报错
+    led, orch = _orch(tmp_path)
+    stats = orch.ingest_chat(_FakeChat(_MSGS, new_seq=5), "chat42")
+    assert stats["files"] == 0
     led.close()
 
 
