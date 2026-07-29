@@ -23,6 +23,7 @@ FIELD_SPEC: dict[str, tuple[str, bool]] = {
     "ANTHROPIC_BASE_URL": ("Claude", False),
     "KBM_CLAUDE_MODEL": ("Claude", False),
     "KBM_CONFIDENCE_THRESHOLD": ("Claude", False),
+    "KBM_IDENTITY_MAP_FILE": ("治理", False),
     # 企业微信微盘
     "WECOM_CORP_ID": ("企业微信", False),
     "WECOM_WEDRIVE_SECRET": ("企业微信", True),

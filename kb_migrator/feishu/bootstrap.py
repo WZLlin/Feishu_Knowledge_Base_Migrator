@@ -61,6 +61,19 @@ class FeishuBootstrapper:
             self._save(t)   # 逐个落盘，中断可续跑
         return t
 
+    def ensure_staging_root(self, root_name: str = "") -> dict:
+        """为 Wiki 两阶段写入确保一个云空间暂存根目录，不改变当前目标形态。
+
+        Wiki 节点不能直接作为 Drive 上传的父目录。文件先由应用上传到该暂存目录，
+        再由 ``push-to-wiki`` 以用户身份重传并挂载；成功后旧副本进入回收站。
+        """
+        t = self.load_targets()
+        if not t.get("root_token"):
+            name = root_name or f"{self.tx.space_name} · Wiki 文件暂存"
+            t["root_token"] = self.w.create_folder(name, "")
+            self._save(t)
+        return t
+
     # ── Wiki 知识空间（建空间需 user_access_token / OAuth）─
 
     def bootstrap_wiki_space(self, user_token: str, space_name: str = "",

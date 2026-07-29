@@ -8,6 +8,8 @@
 import json
 from datetime import datetime, timezone
 
+from docx import Document
+
 from kb_migrator.ledger import Ledger
 from kb_migrator.models import SourceType, Stage
 from kb_migrator.pipeline.orchestrator import Orchestrator
@@ -104,7 +106,11 @@ def test_ingest_chat_segment_text_content(tmp_path):
 
 def test_ingest_chat_downloads_group_files_when_online(tmp_path):
     led, orch = _orch(tmp_path)
-    blob = "file-bytes-方案".encode("utf-8")
+    source = tmp_path / "source.docx"
+    doc = Document()
+    doc.add_paragraph("群文件方案正文")
+    doc.save(source)
+    blob = source.read_bytes()
     conn = _FakeChatWithMedia(_MSGS, new_seq=5, media={"F1": blob})
     stats = orch.ingest_chat(conn, "chat42")
 

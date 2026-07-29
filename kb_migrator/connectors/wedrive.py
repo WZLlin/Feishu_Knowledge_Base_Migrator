@@ -110,6 +110,7 @@ class WeDriveConnector(BaseConnector):
                     content_sha256=it.get("sha") or None,
                     raw_metadata={
                         "space_id": it["_space_id"], "file_type": ftype,
+                        "file_id": it["fileid"],
                         "downloadable": downloadable, "md5": it.get("md5", ""),
                     },
                 )
@@ -121,13 +122,14 @@ class WeDriveConnector(BaseConnector):
             # 原生微文档：无法通过 API 导出，登记但不下载（编排器记 note）
             item.raw_metadata["skip_reason"] = "原生微文档无法批量导出（平台限制）"
             return item
-        data = self._post("/wedrive/file_download", {"fileid": item.source_id})
+        file_id = item.raw_metadata.get("file_id") or item.source_id.split("#rev", 1)[0]
+        data = self._post("/wedrive/file_download", {"fileid": file_id})
         download_url = data["download_url"]
         cookie = {data.get("cookie_name", ""): data.get("cookie_value", "")}
         resp = self.http.get(download_url, cookies={k: v for k, v in cookie.items() if k})
         resp.raise_for_status()
         os.makedirs(self.work_dir, exist_ok=True)
-        local = os.path.join(self.work_dir, f"{item.source_id}_{item.original_name}")
+        local = os.path.join(self.work_dir, f"{file_id}_{item.original_name}")
         with open(local, "wb") as fp:
             fp.write(resp.content)
         item.local_blob_path = local

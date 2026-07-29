@@ -41,6 +41,35 @@ class FeishuWriter:
         )
         return body["data"]["token"]
 
+    def move_file(self, file_token: str, folder_token: str, obj_type: str = "file") -> dict:
+        """把云空间文件移到目标文件夹；调用方应在成功后再更新本地归档状态。"""
+        return self.c.call(
+            "POST", f"/drive/v1/files/{file_token}/move", bucket="drive_folder",
+            json={"type": obj_type, "folder_token": folder_token},
+        )["data"]
+
+    def list_drive_children(self, folder_token: str = "",
+                            user_token: str = "") -> list[dict]:
+        """分页获取云空间文件夹的直接子项；递归由结构发现服务负责。"""
+        items: list[dict] = []
+        page_token = ""
+        while True:
+            params = {"folder_token": folder_token, "page_size": 200}
+            if page_token:
+                params["page_token"] = page_token
+            body = self.c.call(
+                "GET", "/drive/v1/files", bucket="drive_folder",
+                params=params, user_token=user_token or None,
+            )
+            data = body.get("data") or {}
+            items.extend(data.get("files") or [])
+            if not data.get("has_more"):
+                break
+            page_token = data.get("next_page_token") or data.get("page_token") or ""
+            if not page_token:
+                break
+        return items
+
     # ── 云空间：上传文件 ──────────────────────────────────
 
     def upload_file(self, local_path: str, parent_folder_token: str,
@@ -178,6 +207,58 @@ class FeishuWriter:
         node = body["data"]["node"]
         return {"node_token": node["node_token"], "obj_token": node["obj_token"]}
 
+    def list_wiki_children(self, space_id: str, parent_node_token: str = "",
+                           user_token: str = "") -> list[dict]:
+        """分页获取 Wiki 父节点的直接子节点；支持知识空间根节点。"""
+        items: list[dict] = []
+        page_token = ""
+        while True:
+            params = {"page_size": 50}
+            if parent_node_token:
+                params["parent_node_token"] = parent_node_token
+            if page_token:
+                params["page_token"] = page_token
+            body = self.c.call(
+                "GET", f"/wiki/v2/spaces/{space_id}/nodes",
+                bucket="wiki_node", params=params,
+                user_token=user_token or None,
+            )
+            data = body.get("data") or {}
+            items.extend(data.get("items") or [])
+            if not data.get("has_more"):
+                break
+            page_token = data.get("page_token") or ""
+            if not page_token:
+                break
+        return items
+
+    def move_wiki_node(self, space_id: str, node_token: str,
+                       target_parent_token: str, user_token: str = "") -> dict:
+        """在 Wiki 内移动节点；调用用户须具备源、目标父节点容器编辑权限。"""
+        if not user_token:
+            raise ValueError("move_wiki_node 需要 user_access_token")
+        return self.c.call(
+            "POST",
+            f"/wiki/v2/spaces/{space_id}/nodes/{node_token}/move",
+            bucket="wiki_node",
+            json={
+                "target_parent_token": target_parent_token,
+                "target_space_id": space_id,
+            },
+            user_token=user_token,
+        )["data"]
+
+    def rename_wiki_node(self, space_id: str, node_token: str, title: str,
+                         user_token: str = "") -> dict:
+        """更新 Wiki 节点标题；调用用户须具备节点编辑权限。"""
+        if not user_token:
+            raise ValueError("rename_wiki_node 需要 user_access_token")
+        return self.c.call(
+            "POST",
+            f"/wiki/v2/spaces/{space_id}/nodes/{node_token}/update_title",
+            bucket="wiki_node", json={"title": title}, user_token=user_token,
+        ).get("data") or {}
+
     def move_doc_to_wiki(self, space_id: str, obj_type: str, obj_token: str,
                          parent_wiki_token: str = "", apply: bool = True,
                          user_token: str = "") -> dict:
@@ -302,6 +383,17 @@ class FeishuWriter:
 
     # ── 权限 ──────────────────────────────────────────────
 
+    def get_public_permission(self, token: str, obj_type: str,
+                              user_token: str = "") -> dict:
+        """读取云文档公开/外部分享设置，用于移动前权限扩大风险预检。"""
+        body = self.c.call(
+            "GET", f"/drive/v1/permissions/{token}/public",
+            bucket="permission", params={"type": obj_type},
+            user_token=user_token or None,
+        )
+        data = body.get("data") or {}
+        return data.get("permission_public") or data
+
     def add_collaborator(self, token: str, obj_type: str, member_id: str,
                          perm: str = "view", member_type: str = "openid") -> None:
         """加协作者。perm: view/edit/full_access。"""
@@ -310,6 +402,25 @@ class FeishuWriter:
             bucket="permission",
             params={"type": obj_type},
             json={"member_type": member_type, "member_id": member_id, "perm": perm},
+        )
+
+    def update_collaborator(self, token: str, obj_type: str, member_id: str,
+                            perm: str, member_type: str = "openid") -> None:
+        """更新已有协作者角色。"""
+        self.c.call(
+            "PUT", f"/drive/v1/permissions/{token}/members/{member_id}",
+            bucket="permission",
+            params={"type": obj_type, "member_type": member_type},
+            json={"perm": perm},
+        )
+
+    def remove_collaborator(self, token: str, obj_type: str, member_id: str,
+                            member_type: str = "openid") -> None:
+        """移除协作者；只应对本工具曾成功授予的成员调用。"""
+        self.c.call(
+            "DELETE", f"/drive/v1/permissions/{token}/members/{member_id}",
+            bucket="permission",
+            params={"type": obj_type, "member_type": member_type},
         )
 
     def lock_down_external(self, token: str, obj_type: str,

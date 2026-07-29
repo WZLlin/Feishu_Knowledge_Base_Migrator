@@ -19,9 +19,11 @@ class Settings(BaseSettings):
 
     # ── 通用 ──────────────────────────────────────────────
     ledger_db: str = Field(default="./data/ledger.db", alias="KBM_LEDGER_DB")
+    jobs_db: str = Field(default="./data/web_jobs.db", alias="KBM_JOBS_DB")
     work_dir: str = Field(default="./data/work", alias="KBM_WORK_DIR")
     taxonomy_file: str = Field(default="./config/taxonomy.yaml", alias="KBM_TAXONOMY_FILE")
     confidence_threshold: float = Field(default=0.85, alias="KBM_CONFIDENCE_THRESHOLD")
+    identity_map_file: str = Field(default="", alias="KBM_IDENTITY_MAP_FILE")
 
     # ── Claude ────────────────────────────────────────────
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
@@ -51,7 +53,8 @@ class Settings(BaseSettings):
     )
     # 请求的用户授权 scope（建 Wiki 空间/写云文档所需，按应用实际授予调整）
     feishu_oauth_scope: str = Field(
-        default="wiki:wiki drive:drive", alias="KBM_FEISHU_OAUTH_SCOPE"
+        default="wiki:wiki drive:drive offline_access",
+        alias="KBM_FEISHU_OAUTH_SCOPE",
     )
 
     # ── SharePoint / Graph ────────────────────────────────

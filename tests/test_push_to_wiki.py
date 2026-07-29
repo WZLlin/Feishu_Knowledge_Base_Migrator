@@ -94,7 +94,7 @@ def test_dry_run_no_writer(tmp_path):
     led.close()
 
 
-def test_failure_keeps_loaded_and_records_error(tmp_path):
+def test_failure_keeps_loaded_and_enters_structured_error_queue(tmp_path):
     led, orch = _mk(tmp_path)
     ka = _loaded(led, tmp_path, "a", "甲.docx", "01 制度与流程")
     w = _FakeWriter(fail_on={"甲.docx"})
@@ -104,11 +104,13 @@ def test_failure_keeps_loaded_and_records_error(tmp_path):
     assert row["stage"] == Stage.LOADED.value          # 不回退
     assert row["wiki_node_token"] is None
     assert row["error_detail"].startswith("wiki: ")     # 记录，下次重跑自动重试
+    assert row["failed_stage"] == "wiki"
+    assert led.failed_items("wiki")[0]["stable_key"] == ka
     assert w.deleted == []                              # 失败不删租户副本
     led.close()
 
 
-def test_no_blob_skipped(tmp_path):
+def test_no_blob_is_non_retryable_wiki_failure(tmp_path):
     led, orch = _mk(tmp_path)
     # LOADED 但无本地 blob → 无从以用户身份重传，跳过
     item = SourceItem(source_type=SourceType.LOCAL, source_id="x",
@@ -118,7 +120,11 @@ def test_no_blob_skipped(tmp_path):
                feishu_token="tok_x")
     w = _FakeWriter()
     stats = orch.move_loaded_to_wiki(w, _TARGETS, user_token="ut")
-    assert stats["skipped"] == 1 and stats["mounted"] == 0
+    assert stats["failed"] == 1 and stats["mounted"] == 0
+    row = led.get(item.stable_key())
+    assert row["stage"] == Stage.LOADED.value
+    assert row["failed_stage"] == "wiki"
+    assert row["retryable"] == 0
     led.close()
 
 
@@ -133,6 +139,32 @@ class _FakeClient:
     def call(self, method, path, **kw):
         self.paths.append((method, path))
         return self.script.pop(0)
+
+
+def test_writer_moves_wiki_node_to_archive_parent():
+    from kb_migrator.feishu.writer import FeishuWriter
+
+    client = _FakeClient([{"data": {"node": {"node_token": "wiki1"}}}])
+    writer = FeishuWriter(client)
+    writer.move_wiki_node("space1", "wiki1", "archive1", user_token="ut")
+
+    method, path = client.paths[0]
+    assert method == "POST"
+    assert path == "/wiki/v2/spaces/space1/nodes/wiki1/move"
+
+
+def test_writer_renames_wiki_node():
+    from kb_migrator.feishu.writer import FeishuWriter
+
+    client = _FakeClient([{"data": {}}])
+    writer = FeishuWriter(client)
+    writer.rename_wiki_node(
+        "space1", "wiki1", "新标题", user_token="ut"
+    )
+
+    method, path = client.paths[0]
+    assert method == "POST"
+    assert path == "/wiki/v2/spaces/space1/nodes/wiki1/update_title"
 
 
 def test_mount_sync_returns_wiki_token():

@@ -69,6 +69,87 @@ class SharePointConnector(BaseConnector):
         self._token = result["access_token"]
         return self._token
 
+    def health_check(self) -> dict:
+        """真实校验 Entra 凭证以及 Microsoft Graph 站点读取权限。"""
+        try:
+            token_resp = self.http.post(
+                _AUTH.format(tenant=self.tenant_id),
+                data={
+                    "client_id": self.client_id,
+                    "client_secret": self.client_secret,
+                    "scope": "https://graph.microsoft.com/.default",
+                    "grant_type": "client_credentials",
+                },
+            )
+            if token_resp.status_code >= 400:
+                try:
+                    body = token_resp.json()
+                    detail = str(body.get("error_description") or body.get("error") or "")
+                except Exception:  # noqa: BLE001
+                    detail = token_resp.text[:300]
+                return {
+                    "ready": False,
+                    "status": "auth",
+                    "label": "凭证无效",
+                    "message": "SharePoint 应用鉴权失败，请检查 Tenant ID、Client ID 和 Client Secret。",
+                    "detail": detail[:400],
+                    "status_code": token_resp.status_code,
+                }
+            token = str(token_resp.json().get("access_token") or "")
+            if not token:
+                return {
+                    "ready": False,
+                    "status": "auth",
+                    "label": "凭证无效",
+                    "message": "Microsoft 登录接口未返回 access_token，请检查 SharePoint 应用凭证。",
+                }
+
+            graph_resp = self.http.get(
+                f"{_GRAPH}/sites/root?$select=id,displayName",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if graph_resp.status_code == 403:
+                return {
+                    "ready": False,
+                    "status": "permission",
+                    "label": "权限不足",
+                    "message": "SharePoint 已通过鉴权，但缺少 Sites.Read.All/Files.Read.All 管理员授权。",
+                    "status_code": 403,
+                }
+            if graph_resp.status_code == 401:
+                return {
+                    "ready": False,
+                    "status": "auth",
+                    "label": "凭证无效",
+                    "message": "Microsoft Graph 拒绝了访问令牌，请检查应用凭证与租户配置。",
+                    "status_code": 401,
+                }
+            graph_resp.raise_for_status()
+            site = graph_resp.json()
+            return {
+                "ready": True,
+                "status": "ready",
+                "label": "连接正常",
+                "message": "SharePoint 凭证和 Microsoft Graph 站点读取权限均已通过校验。",
+                "site": site.get("displayName") or site.get("id") or "",
+            }
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            return {
+                "ready": False,
+                "status": "endpoint",
+                "label": "访问地址异常",
+                "message": "无法访问 Microsoft 登录或 Graph 接口，请检查网络、代理和防火墙。",
+                "detail": str(exc)[:400],
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ready": False,
+                "status": "error",
+                "label": "连接异常",
+                "message": "SharePoint 连接校验失败，请检查应用配置和 Microsoft Graph 服务状态。",
+                "detail": str(exc)[:400],
+            }
+
     def _get(self, url: str, **kw) -> httpx.Response:
         def _do() -> httpx.Response:
             headers = {"Authorization": f"Bearer {self._access_token()}"}
@@ -126,7 +207,7 @@ class SharePointConnector(BaseConnector):
             created_at=_parse_dt(f.get("createdDateTime")),
             modified_at=_parse_dt(f.get("lastModifiedDateTime")),
             raw_metadata={"drive_id": f["_drive_id"], "graph_id": f["id"],
-                          "mime": file_facet.get("mimeType", "")},
+                          "mime": file_facet.get("mimeType", ""), "etag": f.get("eTag", "")},
         )
 
     # ── 下载 + 权限 ───────────────────────────────────────
@@ -143,15 +224,17 @@ class SharePointConnector(BaseConnector):
             fp.write(resp.content)
         item.local_blob_path = local
         item.content_sha256 = hashlib.sha256(resp.content).hexdigest()
-        item.permissions = self._permissions(drive_id, gid)
+        item.permissions, collected = self._permissions(drive_id, gid)
+        item.raw_metadata["permissions_collected"] = collected
         return item
 
-    def _permissions(self, drive_id: str, gid: str) -> list[Permission]:
+    def _permissions(self, drive_id: str, gid: str) -> tuple[list[Permission], bool]:
         out: list[Permission] = []
         try:
             body = self._get(f"{_GRAPH}/drives/{drive_id}/items/{gid}/permissions").json()
         except Exception:
-            return out
+            # 失败时不能把已有权限快照误覆盖为空；由上层保留旧快照。
+            return out, False
         for p in body.get("value", []):
             granted = p.get("grantedToV2", {}) or {}
             principal = ((granted.get("user") or {}).get("email")
@@ -162,7 +245,7 @@ class SharePointConnector(BaseConnector):
             roles = p.get("roles", [])
             role = "edit" if any(r in ("write", "owner") for r in roles) else "view"
             out.append(Permission(principal=principal, role=role))
-        return out
+        return out, True
 
 
 def _parse_dt(s: Optional[str]) -> Optional[datetime]:

@@ -25,8 +25,13 @@ class _FakeHttp:
     def __init__(self):
         self.gets = []
 
+    def post(self, url, data=None, **kw):
+        return _Resp({"access_token": "health-token"})
+
     def get(self, url, headers=None, **kw):
         self.gets.append(url)
+        if "/sites/root?" in url:
+            return _Resp({"id": "root-site", "displayName": "根站点"})
         if "/sites?" in url:
             return _Resp({"value": [{"id": "site1", "webUrl": "https://sp/site1"}]})
         if url.endswith("/sites/site1/drives"):
@@ -86,9 +91,17 @@ def test_fetch_maps_permissions_roles(tmp_path):
     item = conn.fetch(item)
     assert {p.principal: p.role for p in item.permissions} == {
         "a@x.com": "view", "b@x.com": "edit"}
+    assert item.raw_metadata["permissions_collected"] is True
 
 
 def test_author_and_dates_parsed(tmp_path):
     item = next(i for i in _conn(tmp_path).discover() if i.source_id == "drive1/f1")
     assert item.author == "张三"
     assert item.created_at is not None and item.modified_at is not None
+
+
+def test_health_check_validates_token_and_graph_site_permission(tmp_path):
+    result = _conn(tmp_path).health_check()
+    assert result["ready"] is True
+    assert result["status"] == "ready"
+    assert result["site"] == "根站点"

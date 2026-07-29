@@ -76,6 +76,28 @@ def exchange_user_token(app_id: str, app_secret: str, code: str, redirect_uri: s
     return resp.json()
 
 
+def refresh_user_token(app_id: str, app_secret: str, refresh_token: str,
+                       client: httpx.Client | None = None) -> dict:
+    """用 refresh_token 换取新用户令牌；OAuth 授权需包含 offline_access。"""
+    client = client or httpx.Client(timeout=30)
+    resp = client.post(
+        f"{_ACCOUNTS}/oauth/v3/token",
+        data={
+            "grant_type": "refresh_token",
+            "client_id": app_id,
+            "client_secret": app_secret,
+            "refresh_token": refresh_token,
+        },
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    if data.get("error"):
+        raise RuntimeError(
+            f"刷新 user_access_token 失败：{data.get('error_description') or data['error']}"
+        )
+    return data
+
+
 # ── user_access_token 本地持久化（供 CLI bootstrap --wiki 复用 OAuth 结果）──
 
 def save_user_token(path: str, token_data: dict) -> None:
@@ -87,8 +109,9 @@ def save_user_token(path: str, token_data: dict) -> None:
         json.dump(record, f, ensure_ascii=False, indent=2)
 
 
-def load_user_token(path: str) -> Optional[str]:
-    """读取本地缓存的 user_access_token；文件不存在返回 None。不校验过期，仅取值。"""
+def load_user_token(path: str, app_id: str = "", app_secret: str = "",
+                    client: httpx.Client | None = None) -> Optional[str]:
+    """读取有效用户令牌；过期时有 refresh_token 则自动续期，否则返回 None。"""
     if not os.path.exists(path):
         return None
     try:
@@ -96,5 +119,32 @@ def load_user_token(path: str) -> Optional[str]:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
         return None
-    # 兼容 v3 返回结构：顶层 access_token 或 data.access_token
-    return data.get("access_token") or (data.get("data") or {}).get("access_token")
+    # 兼容 v3 返回结构：顶层字段或 data 包裹字段。
+    token_data = data.get("data") or data
+    token = token_data.get("access_token")
+    expires_in = int(token_data.get("expires_in") or data.get("expires_in") or 0)
+    obtained_at = float(data.get("obtained_at") or 0)
+    expired = bool(
+        token and expires_in and obtained_at
+        and time.time() >= obtained_at + expires_in - 300
+    )
+    if token and not expired:
+        return token
+    refresh_token = (
+        token_data.get("refresh_token") or data.get("refresh_token") or ""
+    )
+    if not (refresh_token and app_id and app_secret):
+        return None
+    try:
+        refreshed = refresh_user_token(
+            app_id, app_secret, refresh_token, client=client
+        )
+        # 部分服务只在首次授权返回 refresh_token，续期响应缺失时沿用旧值。
+        refreshed.setdefault("refresh_token", refresh_token)
+        save_user_token(path, refreshed)
+        return (
+            refreshed.get("access_token")
+            or (refreshed.get("data") or {}).get("access_token")
+        )
+    except (httpx.HTTPError, RuntimeError, ValueError):
+        return None

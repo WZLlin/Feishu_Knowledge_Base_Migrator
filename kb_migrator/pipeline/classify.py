@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from typing import Callable, Optional
 
@@ -95,9 +96,61 @@ def _truncate(text: str) -> str:
     return f"{head}\n...(中略)...\n{tail}"
 
 
+def _classify_health_error(exc: Exception) -> dict:
+    """把不同 SDK/中转网关的异常归一为可展示、可判断的健康状态。"""
+    raw = str(exc or "")
+    # 避免第三方网关把凭证原文带进前端或任务日志。
+    detail = re.sub(r"sk-[A-Za-z0-9_-]{6,}", "sk-***", raw).strip()[:400]
+    text = f"{type(exc).__name__}: {raw}".lower()
+    status_code = getattr(exc, "status_code", None)
+    response = getattr(exc, "response", None)
+    status_code = status_code or getattr(response, "status_code", None)
+
+    if any(word in text for word in (
+        "budget has been exceeded", "insufficient_quota", "insufficient credit",
+        "credit balance", "billing", "quota exceeded", "额度", "余额不足",
+    )):
+        status, label = "quota", "额度不足"
+        message = "AI 接口额度已用尽或预算上限已达到，请充值或提高预算后重试。"
+    elif status_code in (401, 403) or any(word in text for word in (
+        "authentication", "unauthorized", "permission denied", "invalid api key",
+        "invalid_api_key", "forbidden",
+    )):
+        status, label = "auth", "凭证无效"
+        message = "AI 接口鉴权失败，请检查 ANTHROPIC_API_KEY 和鉴权方式。"
+    elif any(word in text for word in (
+        "model_not_found", "model not found", "unknown model", "invalid model",
+    )):
+        status, label = "model", "模型不可用"
+        message = "配置的 Claude 模型不可用，请检查 KBM_CLAUDE_MODEL。"
+    elif status_code == 429 or "rate limit" in text or "rate_limit" in text:
+        status, label = "rate_limit", "请求受限"
+        message = "AI 接口当前触发限流，请稍后重新检测或重试。"
+    elif status_code == 404 or any(word in text for word in (
+        "connection", "connecterror", "connect timeout", "read timeout",
+        "timed out", "dns", "name resolution", "invalid url", "not found",
+    )):
+        status, label = "endpoint", "访问地址异常"
+        message = "无法访问 AI 接口地址，请检查 ANTHROPIC_BASE_URL、网络和代理配置。"
+    else:
+        status, label = "error", "接口异常"
+        message = "AI 接口校验失败，请检查接口配置后重新检测。"
+
+    return {
+        "ready": False,
+        "status": status,
+        "label": label,
+        "message": message,
+        "detail": detail,
+        "status_code": status_code,
+    }
+
+
 class Classifier:
     def __init__(self, taxonomy: Taxonomy, api_key: str = "", model: str = "claude-sonnet-5",
-                 base_url: str = "", auth_style: str = "auto"):
+                 base_url: str = "", auth_style: str = "auto",
+                 request_timeout: float | None = None,
+                 max_retries: int | None = None):
         self.tx = taxonomy
         self.model = model
         self.category_enum = taxonomy.category_paths()
@@ -111,6 +164,10 @@ class Classifier:
                 kwargs: dict = {}
                 if base_url:
                     kwargs["base_url"] = base_url
+                if request_timeout is not None:
+                    kwargs["timeout"] = request_timeout
+                if max_retries is not None:
+                    kwargs["max_retries"] = max_retries
                 # sk- 短格式中转多用 Bearer(auth_token)；官方长 key 用 x-api-key。
                 # auto：非官方(sk-ant- 之外)且配了自建网关 → 走 Bearer。
                 use_bearer = auth_style == "bearer" or (
@@ -127,6 +184,34 @@ class Classifier:
     @property
     def online(self) -> bool:
         return self._client is not None
+
+    def health_check(self) -> dict:
+        """用一次极小的 Messages 请求验证凭证、地址、模型和额度。
+
+        ``online`` 只代表 SDK 客户端已创建，不能证明网关可访问或账号仍有额度；
+        控制台用本方法决定 Claude 指示灯以及分类任务是否可以启动。
+        """
+        if not self.online:
+            return {
+                "ready": False,
+                "status": "sdk_missing",
+                "label": "SDK 不可用",
+                "message": "未安装 Anthropic SDK，Claude 分类不可用。",
+            }
+        try:
+            self._client.messages.create(
+                model=self.model,
+                max_tokens=1,
+                messages=[{"role": "user", "content": "ping"}],
+            )
+            return {
+                "ready": True,
+                "status": "ready",
+                "label": "连接正常",
+                "message": f"AI 接口可用，模型 {self.model} 已通过校验。",
+            }
+        except Exception as exc:  # noqa: BLE001 - SDK/网关异常类型并不统一
+            return _classify_health_error(exc)
 
     # ── 单条分类 ──────────────────────────────────────────
 

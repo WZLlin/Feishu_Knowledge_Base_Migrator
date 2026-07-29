@@ -17,11 +17,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import socket
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 import webbrowser
 from pathlib import Path
 
@@ -36,6 +39,7 @@ HOST = "127.0.0.1"
 PORT = 8000
 APP = "kb_migrator.web.app:app"
 URL = f"http://{HOST}:{PORT}"
+EXPECTED_API_PROTOCOL = 1
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
@@ -53,6 +57,38 @@ def _port_open() -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(0.5)
         return s.connect_ex((HOST, PORT)) == 0
+
+
+def _get_json(path: str) -> dict:
+    request = urllib.request.Request(
+        f"{URL}{path}", headers={"Cache-Control": "no-cache"}
+    )
+    with urllib.request.urlopen(request, timeout=3) as response:
+        return json.load(response)
+
+
+def _runtime_probe() -> tuple[bool, str, dict]:
+    """区分“端口被占用”与“当前版本控制台已经完整就绪”。"""
+    try:
+        meta = _get_json("/api/meta")
+        protocol = meta.get("api_protocol")
+        if protocol != EXPECTED_API_PROTOCOL:
+            return (
+                False,
+                f"接口协议不兼容（需要 {EXPECTED_API_PROTOCOL}，实际 {protocol}）",
+                meta,
+            )
+        readiness = _get_json("/api/health/ready")
+        if not readiness.get("ready"):
+            reason = "；".join(readiness.get("failures") or []) or "未知原因"
+            return False, f"服务尚未就绪：{reason}", meta
+        return True, "服务已就绪", meta
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return False, "端口上的服务缺少当前版本接口，可能是旧进程", {}
+        return False, f"就绪检查返回 HTTP {exc.code}", {}
+    except Exception as exc:
+        return False, f"就绪检查失败：{exc}", {}
 
 
 def _pid_alive(pid: int) -> bool:
@@ -73,9 +109,30 @@ def _read_pid() -> int | None:
 
 
 def _pids_on_port() -> set[int]:
-    """psutil 可用时，返回监听 PORT 的进程 PID 集合（兜底用）。"""
+    """返回监听 PORT 的进程 PID；Windows 无 psutil 时解析 netstat。"""
     if psutil is None:
-        return set()
+        if os.name != "nt":
+            return set()
+        try:
+            output = subprocess.run(
+                ["netstat", "-ano", "-p", "TCP"],
+                capture_output=True, text=True, check=False,
+                creationflags=0x08000000,  # CREATE_NO_WINDOW
+            ).stdout
+            found = set()
+            for line in output.splitlines():
+                parts = line.split()
+                if (
+                    len(parts) >= 5
+                    and parts[0].upper() == "TCP"
+                    and parts[1].endswith(f":{PORT}")
+                    and parts[3].upper() == "LISTENING"
+                    and parts[4].isdigit()
+                ):
+                    found.add(int(parts[4]))
+            return found
+        except OSError:
+            return set()
     found: set[int] = set()
     try:
         for c in psutil.net_connections(kind="inet"):
@@ -88,10 +145,18 @@ def _pids_on_port() -> set[int]:
 
 def start(open_browser: bool = True) -> int:
     if _port_open():
-        print(f"[kb-migrator] 控制台已在运行：{URL}")
-        if open_browser:
-            webbrowser.open(URL)
-        return 0
+        ready, message, meta = _runtime_probe()
+        if ready:
+            print(
+                f"[kb-migrator] 控制台已在运行：{URL} "
+                f"API {meta.get('api_version')} 实例 {meta.get('instance_id')}"
+            )
+            if open_browser:
+                webbrowser.open(URL)
+            return 0
+        print(f"[kb-migrator] 端口 {PORT} 已被占用，但{message}。")
+        print("[kb-migrator] 若这是旧控制台，请执行：python console.py restart")
+        return 1
 
     DATA.mkdir(parents=True, exist_ok=True)
     log = open(LOG_FILE, "a", encoding="utf-8")
@@ -112,10 +177,15 @@ def start(open_browser: bool = True) -> int:
     for _ in range(30):  # 等端口就绪，最多 ~15s
         time.sleep(0.5)
         if _port_open():
-            print(f"[kb-migrator] 已就绪：{URL}")
-            if open_browser:
-                webbrowser.open(URL)
-            return 0
+            ready, message, meta = _runtime_probe()
+            if ready:
+                print(
+                    f"[kb-migrator] 已就绪：{URL} "
+                    f"API {meta.get('api_version')} 实例 {meta.get('instance_id')}"
+                )
+                if open_browser:
+                    webbrowser.open(URL)
+                return 0
         if proc.poll() is not None:
             print(f"[kb-migrator] 启动失败（进程已退出，退出码 {proc.returncode}）。查看日志：{LOG_FILE}")
             return 1
@@ -139,6 +209,14 @@ def _kill(pid: int) -> bool:
         except psutil.AccessDenied:
             print(f"[kb-migrator] 无权限结束 PID {pid}（试试管理员）")
             return False
+    if os.name == "nt":
+        # venv 的 python.exe 可能再派生真正解释器；/T 同时结束已核对的服务进程树。
+        result = subprocess.run(
+            ["taskkill", "/PID", str(pid), "/T", "/F"],
+            capture_output=True, text=True, check=False,
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
+        )
+        return result.returncode == 0
     try:
         os.kill(pid, 15)  # SIGTERM
         return True
@@ -172,11 +250,14 @@ def status() -> int:
     print(f"[kb-migrator] 运行中：{'是' if running else '否'}"
           f"  地址 {URL}  PID文件 {pid or '(无)'}")
     if running:
+        ready, message, meta = _runtime_probe()
+        print(
+            f"  就绪：{'是' if ready else '否'}  {message}"
+            f"  API={meta.get('api_version', '(未知)')}"
+            f"  instance={meta.get('instance_id', '(未知)')}"
+        )
         try:
-            import json
-            import urllib.request
-            with urllib.request.urlopen(f"{URL}/api/status", timeout=3) as r:
-                data = json.load(r)
+            data = _get_json("/api/status")
             print("  台账：total=%s  loaded=%s  feishu_ready=%s  claude_ready=%s  targets=%s"
                   % (data.get("total"), data.get("loaded"), data.get("feishu_ready"),
                      data.get("claude_ready"), data.get("targets_count")))

@@ -5,7 +5,7 @@
 > **两种操作方式，任选其一**：
 > - **单页 Web 控制台（推荐，零命令）**：`uvicorn kb_migrator.web.app:app --host 127.0.0.1 --port 8000`
 >   打开 → 「配置」填存凭证 → 「授权」测试连接/飞书 OAuth → 「迁移」填路径/空间ID一键触发看实时进度 →
->   「确认队列」复核 → 「目标结构」bootstrap + 写入。**务必绑定 127.0.0.1**（涉及凭证，勿暴露公网）。
+>   「确认队列」复核 → 「结构工作台」编辑、对比并确认 → 预览发布 → 写入。**务必绑定 127.0.0.1**（涉及凭证，勿暴露公网）。
 > - **CLI**：见下文各阶段命令，适合脚本化/批处理。二者共用同一台账与 `.env`，可混用。
 
 ## 阶段 0 · 准备与摸底
@@ -22,12 +22,50 @@
 3. **敲定治理规则**：填 `config/taxonomy.yaml` 的 owner/steward/复审节奏/保留期；
    参照 `docs/知识治理模板.md`。
 
-## 阶段 1 · 建飞书知识库骨架
+## 阶段 1 · 建飞书目标结构
 
-1. 用 **user_access_token** 建知识空间（`create_wiki_space` 需用户身份）。
-2. 建一级目录（`config/taxonomy.yaml` 的 `all_folder_paths()`，含 `90 待整理`/`99 归档`）。
-3. 配置空间成员与默认权限（管理员=owner、编辑=steward、成员=只读）。
-4. 记录「分类路径 → 飞书 folder_token」映射，回填给 `load` 步骤的 `folder_map`。
+推荐使用 Web「结构工作台」：
+
+1. 系统先根据 `config/taxonomy.yaml` 生成可编辑草稿；若已有旧版
+   `feishu_targets.json`，会导入现有 token 绑定，不重复创建。
+2. 在左侧规划树中新增、改名、拖拽或删除目录，点击「保存草稿」。目录使用稳定
+   `node_id`，显示名称可调整；历史名称自动成为路由别名。
+3. 可点击「生成建议」查看基于 taxonomy、文件分布、人工确认和飞书现状产生的建议；
+   建议不会自动保存。也可从版本历史恢复到当前草稿。
+4. 点击「刷新飞书现状」。右侧是只读快照，刷新不会覆盖左侧草稿。可逐层或全部展开/
+   收起；搜索会自动展开命中路径。也可把节点采纳到左侧、映射到左侧选中目录，或标记为
+   外部管理、待合并、待归档。
+5. 点击「生成差异」，处理 `CONFLICT`；飞书独有目录仅显示，不自动删除，并选择历史
+   内容作用范围。默认只影响未迁移文件。
+6. 点击「最终确认」冻结规划。可设置所需审批人数；首次审批后草稿冻结，达到人数后才允许发布。
+   确认操作本身不写飞书。
+7. 审批发布计划，先「预览发布」，再「执行并激活」。只有所有节点成功创建或映射后，新结构才成为
+   迁移路由版本；执行中断可按已持久化绑定继续。
+
+持续调整时：
+
+- 勾选多个目录后点击「合并选中」，指定保留目标。owner/steward 不一致时必须人工选择。
+  结构发布只改变后续路由，既有文件统一进入独立重定位计划。
+- 勾选一个分类目录后点击「拆分选中」，为子目录配置文件名、来源路径、文档类型、年份或
+  `metadata.*` 路由规则。规则按优先级匹配，同级必须有且最多一个兜底目录；未配置时
+  自动增加“90 待整理”。新内容按激活版本路由；历史已迁移文件进入独立重定位计划。
+- 新结构激活后，在「历史文件重定位」区域点击“生成候选计划”，逐项检查并取消不应搬迁
+  的条目，保存选择后执行“远程冲突预检”。审批计划不会移动文件；点击“执行重定位”时
+  还会再次全量预检。同名不同内容、疑似近似内容、无法读取权限或目标权限更开放时，
+  都会在第一项移动前阻断；同名且内容哈希相同的条目按精确重复处理。
+- 执行中断后可对同一计划重试，已完成条目不会重复搬迁。只有本计划确实移动、且审计中
+  保留原父目录的条目支持“回滚本计划”；回滚前也会检查原目录同名冲突。
+- 所有发布范围都只创建后续写入目标并保留旧目录及历史内容。选择并审批“允许调整历史
+  内容”后，系统会在新结构激活后自动生成独立候选计划，但仍须人工审批和执行才会搬迁。
+- 合并自动保留所有旧名称作为分类路由别名；复审周期取更短值、保留期取更长值。
+  owner/steward 差异必须由操作人明确选择，并写入结构审计。
+- 已迁移文件的 `target_node_id` 只在独立重定位动作成功后更新；结构发布不会提前改写
+  历史分配。
+- 发布前执行「健康检查」，确认目录校验、绑定覆盖、owner/steward 覆盖、空目录、
+  规则未命中项及已迁移重定位候选均符合预期。
+
+CLI `python cli.py bootstrap` / `bootstrap --wiki` 仍保留为兼容的一层 taxonomy 快速建库
+方式；需要人工编辑、多级目录、现状对比和版本管理时应使用结构工作台。
 
 ## 阶段 2 · 跑迁移管线（四类源汇入同一台账、共用后续管线）
 
@@ -48,7 +86,17 @@ python cli.py classify                       # AI 分类
 - **微盘**：仅普通文件（Word/Excel/PDF/PPT）可迁，原生微文档跳过并记 note；应用须为每个微盘空间成员。
 - 群聊会话正文走**阶段 5** 的 `migrate-chat`（同样汇入本管线）；群里的**文件**用 `scan-wedrive` 迁。
 - 观察 `python cli.py stats` 的**沉淀比例**与**失败/重复**计数。
-- 失败项看 `error_detail`：旧格式需装 LibreOffice；扫描件需 OCR；锁文件自动跳过。
+- `python cli.py runs` 查看每次 ingest/dedup/classify/load/wiki 等执行批次的终态、统计和错误；
+  条目还会持久化提取成功标记、提取备注、正文字符数、分类器版本及状态变更事件。
+- 再次盘点发现同一来源对象的内容或属性变化时，工具不会覆盖已入库副本。运行
+  `source-changes` 查看，再用 `apply-source-changes` 派生 `#revN` 新版本；重新执行对应来源
+  scan 和后续管线。新版本 `LOADED` 后以 `finalize-source-change <ID> --commit` 归档旧版。
+- 本地完整盘点发现源文件删除时，运行 `missing-sources`；用
+  `resolve-missing <key> --action keep` 保留，或 `--action archive --commit` 移入归档。
+- 用 `python cli.py failures` 查看失败阶段、重试次数与可重试性；`fetch` 类临时失败可用
+  `retry-failed --stage fetch|extract` 重排后再运行对应 scan；`dedup`/`classify`/`wiki`/
+  `archive` 失败分别重排后重跑对应命令。旧格式需 Office COM 或 LibreOffice；扫描件需 OCR；
+  平台不支持导出会标为不可重试。
 - **AI 分类默认走 Batch**（token 5 折，`KBM_CLAUDE_USE_BATCH=true`）；待分类数≥8 且在线时启用，
   中转网关不代理 batch 端点时**自动回退逐条**（带 prompt cache，功能不打折，仅不省那 5 折）。
 
@@ -65,9 +113,15 @@ python cli.py load               # 默认 dry-run 预览（不上传）
 python cli.py load --commit       # 真实写入（需 .env 配好飞书凭证 + 已 bootstrap 的 folder_map）
 ```
 - **默认 dry-run**：不加 `--commit` 只预览写入计划，避免误上传；确认无误再加 `--commit` 真写。
-- 每份文件上传到对应分类文件夹，按需 `import` 转飞书原生文档，写入即**收紧对外分享**。
+- 每份文件以原格式上传到对应分类文件夹，写入即**收紧对外分享**。`import_as_doc` 当前是
+  写入层预留能力，默认管线不会自动转飞书原生文档。
+- 若需同步 SharePoint 等来源权限，维护 `KBM_IDENTITY_MAP_FILE` 指向的 JSON：
+  `{来源邮箱或用户ID: 飞书open_id}`。写入时只对已映射主体加协作者；未映射项保留在台账，
+  owner/steward 也分别映射为管理/编辑协作者；角色变化会更新，源端撤权只撤销本工具曾授予的
+  成员，不触碰飞书侧人工添加协作者。权限同步失败不会开放文件或中断迁移。
 - 敏感内容单独节点 + `only_full_access`（禁复制/下载/打印）。
-- 全程回写台账 `feishu_token`/`feishu_url`，可追溯。
+- 全程回写台账 `feishu_token`；Wiki 模式另回写 `wiki_node_token`，可追溯。当前上传接口不保证
+  返回可访问 URL，因此不把 `feishu_url` 作为完成条件。
 - **重试失败项**：`python cli.py retry-failed`（默认 dry-run 预览，`--commit` 才真写）——只回捞写飞书失败
   （`error_detail` 前缀 `load: `）的条目重排回 CONFIRMED 再跑；已上传成功（有 `feishu_token`）
   的条目**跳过重传**只重收紧，避免重复文件。Web 控制台亦有对应重试入口（`POST /api/jobs/retry`）。
@@ -89,6 +143,31 @@ python cli.py push-to-wiki --commit      # 真实挂入（需已完成 OAuth，�
 - **幂等**：台账 `wiki_node_token` 是否存在即标记，已挂入的重跑自动跳过；挂载失败会回滚刚上传的用户副本
   （不留孤儿），记 `error_detail="wiki: ..."`，重跑自动重试。stage 保持 `LOADED` 不回退。
 - Web 控制台亦有对应入口（`POST /api/jobs/push-to-wiki`）。
+
+### 阶段 4.6 · 生命周期归档
+
+```bash
+python cli.py governance          # 先核对 archive_due 候选
+python cli.py archive             # 默认 dry-run
+python cli.py archive --commit    # 真实移入 99 归档
+```
+
+- Drive 文件移入云空间 `99 归档` 文件夹；Wiki 节点以 OAuth 用户身份移入 Wiki 的
+  `99 归档` 节点。只有远端移动成功后台账才记录 `archived_at` 和原因。
+- Web 对应接口为 `POST /api/jobs/archive`，`dry_run` 缺省为 `true`。
+
+### 阶段 4.7 · 定期复审与健康度
+
+```bash
+python cli.py governance
+python cli.py complete-review "<stable_key>" --actor "<复审人>"
+python cli.py insights
+```
+
+- `governance` 输出复审到期、保留期到期、待整理、无责任人队列及 owner/归类/复审健康度。
+- `complete-review` 写治理审计事件，并按 taxonomy 的 `review_months` 从复审日顺延下次日期。
+- `insights` 用人工确认反馈给出自动确认阈值建议；样本量或精度不足时保持现阈值，同时按正文
+  相似度输出待整理知识簇。Web「治理」标签提供同样的看板和复审操作。
 
 ## 阶段 5 · 群聊迁移（POC，前提：已开通会话存档）
 
@@ -157,10 +236,21 @@ python cli.py govern-chat <群聊ID> --url "<飞书入口链接>" --commit  # �
 ### D. Windows 控制台中文乱码
 - CLI 已强制 stdout/stderr 走 UTF-8；若仍乱码，运行前 `set PYTHONUTF8=1`。
 
-### E. 阶段1 建目标结构（bootstrap）
+### E. Web 页面提示旧后端、加载失败或 Not Found
+- 推荐用 `python console.py start|stop|restart|status` 管理控制台；更新源码后必须执行
+  `python console.py restart`，单纯刷新浏览器不会重载 Python 路由。
+- `python console.py status` 会同时检查 `/api/meta` 和 `/api/health/ready`。前者核对接口协议、
+  服务实例及能力清单，后者检查 SQLite 表结构、taxonomy 和本地运行目录。
+- 页面会在进入任一功能前执行相同握手。若检测到旧进程，会暂停功能区并显示「重新检查」，
+  不再等到结构工作台调用新接口时才报 404。
+- 若重启仍失败，查看 `data/uvicorn.log`，并确认 8000 端口未被其他程序占用。控制台必须只
+  绑定 `127.0.0.1`，不要对公网开放。
+
+### F. 阶段1 建目标结构（bootstrap）
 - **最快真实写入**（无需 OAuth）：`python cli.py bootstrap` 建云空间文件夹树，仅需
   应用凭证（`drive:drive`）；`分类→token` 映射持久化到 `data/feishu_targets.json`，幂等。
 - **建 Wiki 空间**（阶段1目标态，需 OAuth）：启动控制台 → 浏览器访问
-  `/feishu/oauth/login` 授权 → `user_access_token` 自动落盘 →
+  `/api/oauth/feishu/login` 授权 → `user_access_token` 自动落盘 →
   `python cli.py bootstrap --wiki`；随后 `load` → `push-to-wiki`（见阶段 4.5）把文件挂进节点。
-- `python cli.py targets` 随时查看已回填映射；`python cli.py load` 真实写入。
+- `python cli.py targets` 随时查看已回填映射；`python cli.py load --dry-run` 仅预览，
+  `python cli.py load --commit` 才真实写入。

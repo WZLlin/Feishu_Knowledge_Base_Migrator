@@ -110,6 +110,28 @@ def test_bootstrap_and_load_realwrite(tmp_path):
     led.close()
 
 
+def test_wiki_staging_root_is_idempotent_and_preserves_mode(tmp_path):
+    targets_file = tmp_path / "targets.json"
+    targets_file.write_text(
+        '{"mode":"wiki","root_token":"","space_id":"space-1",'
+        '"folder_map":{},"wiki_node_map":{"01 制度与流程":"wiki-1"}}',
+        encoding="utf-8",
+    )
+    tx = Taxonomy.load("config/taxonomy.yaml")
+    writer = FakeWriter()
+    boot = FeishuBootstrapper(writer, tx, str(targets_file))
+
+    first = boot.ensure_staging_root("知识库 · Wiki 文件暂存")
+    second = boot.ensure_staging_root("知识库 · Wiki 文件暂存")
+
+    assert first["mode"] == "wiki"
+    assert first["space_id"] == "space-1"
+    assert first["wiki_node_map"]["01 制度与流程"] == "wiki-1"
+    assert first["root_token"]
+    assert second["root_token"] == first["root_token"]
+    assert len(writer.folders) == 1
+
+
 def test_load_routes_triage_when_category_folder_missing(tmp_path):
     """分类无对应文件夹时回退到 90 待整理 文件夹（不丢件）。"""
     src = tmp_path / "src"

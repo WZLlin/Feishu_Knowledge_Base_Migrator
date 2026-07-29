@@ -16,6 +16,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+from datetime import date
+from functools import wraps
 from typing import Callable, Optional
 
 # 进度回调：progress(done, total, msg)。默认 None，不影响 CLI/测试。
@@ -26,10 +29,38 @@ def _report(cb: ProgressCb, done: int, total: int, msg: str = "") -> None:
     if cb:
         cb(done, total, msg)
 
+
+def _tracked(run_type: str):
+    """把一次顶层管线调用记录为可审计批次，不改变原方法返回结构。"""
+    def decorate(fn):
+        @wraps(fn)
+        def wrapped(self, *args, **kwargs):
+            run_id = self.led.start_pipeline_run(
+                run_type,
+                structure_version_id=str(
+                    kwargs.get("structure_version_id") or ""
+                ),
+            )
+            try:
+                result = fn(self, *args, **kwargs)
+            except Exception as exc:
+                self.led.finish_pipeline_run(
+                    run_id, error=f"{type(exc).__name__}: {exc}",
+                )
+                raise
+            self.led.finish_pipeline_run(
+                run_id, stats=result if isinstance(result, dict) else {},
+            )
+            return result
+        return wrapped
+    return decorate
+
 from ..ledger import Ledger
 from ..models import DedupVerdict, SourceItem, Stage
 from ..taxonomy import Taxonomy
 from ..utils.naming import canonical_name
+from ..utils.identity import resolve_identity
+from ..utils.governance import add_months, governance_fields
 from .classify import Classifier
 from .dedup import NearDuplicateIndex, SemanticIndex
 from .extract import extract_text
@@ -64,17 +95,39 @@ class Orchestrator:
 
     # ── 阶段 1：ingest ────────────────────────────────────
 
+    @_tracked("ingest")
     def ingest(self, connector, progress: ProgressCb = None) -> dict:
         """列举 + 抽取 + 精确去重。返回统计。"""
-        stats = {"discovered": 0, "extracted": 0, "exact_dup": 0, "failed": 0}
+        stats = {"discovered": 0, "changed": 0, "missing": 0, "extracted": 0, "exact_dup": 0, "failed": 0}
+        from ..ledger import _now
+        scan_started_at = _now()
+        seen_keys: set[str] = set()
         # 1) 盘点
         _report(progress, 0, 0, "开始盘点源系统…")
+        source_type = getattr(connector, "source_name", "")
+        try:
+            from ..models import SourceType
+            source_type = SourceType(source_type)
+        except ValueError as e:
+            raise ValueError(f"连接器未声明合法 source_name: {source_type!r}") from e
         for item in connector.discover():
-            if self.led.upsert_discovered(item):
+            if item.source_type != source_type:
+                raise ValueError(
+                    f"连接器 source_name={source_type.value!r} 却发现了 "
+                    f"{item.source_type.value!r} 条目"
+                )
+            result = self.led.record_discovered(item)
+            seen_keys.add(item.stable_key())
+            if result.created:
                 stats["discovered"] += 1
+            if result.changed:
+                stats["changed"] += 1
+        if source_type.value == "local" and getattr(connector, "root", ""):
+            stats["missing"] = self.led.mark_missing_local_sources(
+                connector.root, seen_keys, scan_started_at)
         _report(progress, 0, stats["discovered"], f"盘点完成，发现 {stats['discovered']} 项，开始抽取")
-        # 2) 对 DISCOVERED 逐个下载 + 提取
-        pending = self.led.items_in_stage(Stage.DISCOVERED)
+        # 2) 只对当前来源的 DISCOVERED 下载 + 提取，避免跨连接器误处理。
+        pending = self.led.items_in_stage(Stage.DISCOVERED, source_type)
         total = len(pending)
         for done, row in enumerate(pending, 1):
             key = row["stable_key"]
@@ -83,12 +136,15 @@ class Orchestrator:
             try:
                 item = connector.fetch(item)
             except Exception as e:  # noqa: BLE001
-                self.led.update(key, stage=Stage.FAILED, error_detail=f"fetch: {e}")
+                self.led.mark_failed(key, "fetch", str(e))
                 stats["failed"] += 1
                 continue
+            # 仅在连接器明确说明权限采集成功时更新快照；无权限/接口失败时保留旧值。
+            if item.raw_metadata.get("permissions_collected"):
+                self.led.replace_source_permissions(key, item.permissions)
             if item.raw_metadata.get("skip_reason"):
-                self.led.update(key, stage=Stage.FAILED,
-                                error_detail=item.raw_metadata["skip_reason"])
+                self.led.mark_failed(key, "fetch", item.raw_metadata["skip_reason"],
+                                     retryable=False)
                 stats["failed"] += 1
                 continue
             # 精确去重：sha256 已在台账中出现且已入库 -> 跳过
@@ -108,23 +164,44 @@ class Orchestrator:
                     )
                     stats["exact_dup"] += 1
                     continue
-            # 文本提取
-            result = extract_text(item.local_blob_path) if item.local_blob_path else None
-            text = result.text if result else ""
-            note = "" if (result and result.ok) else (result.note if result else "no blob")
-            self._save_text(key, text)
-            self.led.update(
-                key, stage=Stage.EXTRACTED.value,
-                content_sha256=item.content_sha256,
-                local_blob_path=item.local_blob_path,
-                dedup_cluster_id=item.content_sha256,
-                error_detail=note or None,
-            )
-            stats["extracted"] += 1
+            # 文本提取。失败进入结构化队列，避免空正文被静默推进到分类阶段。
+            try:
+                result = extract_text(item.local_blob_path) if item.local_blob_path else None
+                if not result or not result.ok:
+                    note = result.note if result else "no blob"
+                    self.led.update(
+                        key, content_sha256=item.content_sha256,
+                        local_blob_path=item.local_blob_path,
+                        dedup_cluster_id=item.content_sha256,
+                        extraction_ok=0, extraction_note=note,
+                        extracted_text_chars=0,
+                    )
+                    non_retryable = note.startswith("unsupported ext")
+                    self.led.mark_failed(
+                        key, "extract", note, retryable=not non_retryable,
+                    )
+                    stats["failed"] += 1
+                    continue
+                self._save_text(key, result.text)
+                self.led.update(
+                    key, stage=Stage.EXTRACTED.value,
+                    content_sha256=item.content_sha256,
+                    local_blob_path=item.local_blob_path,
+                    dedup_cluster_id=item.content_sha256,
+                    error_detail=result.note or None,
+                    failed_stage=None,
+                    extraction_ok=1, extraction_note=result.note or "",
+                    extracted_text_chars=len(result.text),
+                )
+                stats["extracted"] += 1
+            except Exception as e:  # noqa: BLE001
+                self.led.mark_failed(key, "extract", str(e))
+                stats["failed"] += 1
         return stats
 
     # ── 阶段 1b：群聊会话存档 -> 会话片段 -> 标准 items 管线 ──
 
+    @_tracked("ingest_chat")
     def ingest_chat(self, connector, chat_id: str, chat_name: str = "",
                     limit: int = 1000, max_batches: int = 1000,
                     progress: ProgressCb = None) -> dict:
@@ -250,8 +327,7 @@ class Orchestrator:
             data = connector.fetch_media(sdkfileid)
         except Exception as e:  # noqa: BLE001  单个文件下载失败不阻断整批
             self.led.upsert_discovered(fitem)
-            self.led.update(key, stage=Stage.FAILED.value,
-                            error_detail=f"fetch: 群文件下载失败 {e}")
+            self.led.mark_failed(key, "fetch", f"群文件下载失败 {e}")
             stats["files_skipped"] += 1
             return
         sha = hashlib.sha256(data).hexdigest()
@@ -275,38 +351,71 @@ class Orchestrator:
             stats["files_skipped"] += 1
             return
         result = extract_text(local)
-        text = result.text if result else ""
-        note = "" if (result and result.ok) else (result.note if result else "no blob")
-        self._save_text(key, text)
+        if not result or not result.ok:
+            note = result.note if result else "no blob"
+            self.led.update(key, content_sha256=sha, local_blob_path=local,
+                            dedup_cluster_id=sha, extraction_ok=0,
+                            extraction_note=note, extracted_text_chars=0)
+            self.led.mark_failed(
+                key, "extract", note,
+                retryable=not note.startswith("unsupported ext"),
+            )
+            stats["files_skipped"] += 1
+            return
+        self._save_text(key, result.text)
         self.led.update(key, stage=Stage.EXTRACTED.value, content_sha256=sha,
                         local_blob_path=local, dedup_cluster_id=sha,
-                        error_detail=note or None)
+                        error_detail=result.note or None, failed_stage=None,
+                        extraction_ok=1, extraction_note=result.note or "",
+                        extracted_text_chars=len(result.text))
         stats["files"] += 1
 
     # ── 阶段 2：dedup（近似）──────────────────────────────
 
-    def dedup_pass(self, threshold: float = 0.75, progress: ProgressCb = None) -> dict:
-        stats = {"unique": 0, "near_dup": 0}
-        idx = NearDuplicateIndex(threshold=threshold)
+    @_tracked("dedup")
+    def dedup_pass(self, threshold: float = 0.75, progress: ProgressCb = None,
+                   index: NearDuplicateIndex | None = None) -> dict:
+        """近似去重，并将历史唯一条目加入候选索引。
+
+        历史正文仍位于 work_dir/text；缓存已清理的旧条目不会参与近似比较，但不影响
+        当前批次继续处理。语义去重仍可作为更高成本的周期性补充。
+        """
+        stats = {"unique": 0, "near_dup": 0, "historical_indexed": 0, "failed": 0}
+        idx = index or NearDuplicateIndex(threshold=threshold)
+        historical_stages = (Stage.DEDUPED, Stage.CLASSIFIED, Stage.CONFIRMED, Stage.LOADED)
+        for stage in historical_stages:
+            for old in self.led.items_in_stage(stage):
+                if old["dedup_verdict"] != DedupVerdict.UNIQUE.value:
+                    continue
+                text = self.load_text(old["stable_key"])
+                if text.strip():
+                    idx.add(old["stable_key"], text)
+                    stats["historical_indexed"] += 1
         rows = self.led.items_in_stage(Stage.EXTRACTED)
         total = len(rows)
         for done, row in enumerate(rows, 1):
             key = row["stable_key"]
             _report(progress, done, total, f"近似去重 {done}/{total}")
-            text = self.load_text(key)
-            res = idx.query(text)
-            if res.verdict == DedupVerdict.NEAR_DUPLICATE:
-                self.led.update(
-                    key, stage=Stage.DEDUPED.value,
-                    dedup_verdict=DedupVerdict.NEAR_DUPLICATE.value,
-                    error_detail=f"近似重复 of {res.matched_key} sim={res.similarity:.2f}",
-                )
-                stats["near_dup"] += 1
-            else:
-                idx.add(key, text)
-                self.led.update(key, stage=Stage.DEDUPED.value,
-                                dedup_verdict=DedupVerdict.UNIQUE.value)
-                stats["unique"] += 1
+            try:
+                text = self.load_text(key)
+                res = idx.query(text)
+                if res.verdict == DedupVerdict.NEAR_DUPLICATE:
+                    self.led.update(
+                        key, stage=Stage.DEDUPED.value,
+                        dedup_verdict=DedupVerdict.NEAR_DUPLICATE.value,
+                        error_detail=f"近似重复 of {res.matched_key} sim={res.similarity:.2f}",
+                        failed_stage=None,
+                    )
+                    stats["near_dup"] += 1
+                else:
+                    idx.add(key, text)
+                    self.led.update(key, stage=Stage.DEDUPED.value,
+                                    dedup_verdict=DedupVerdict.UNIQUE.value,
+                                    failed_stage=None)
+                    stats["unique"] += 1
+            except Exception as e:  # noqa: BLE001
+                self.led.mark_failed(key, "dedup", str(e))
+                stats["failed"] += 1
         return stats
 
     # ── 阶段 2b：semantic（语义近邻，周期性疑似重复审查）────
@@ -314,6 +423,7 @@ class Orchestrator:
     # 语义审查覆盖的阶段：已过精确/近似去重、仍在库的条目（不含已判重/失败）
     _SEMANTIC_STAGES = (Stage.DEDUPED, Stage.CLASSIFIED, Stage.CONFIRMED, Stage.LOADED)
 
+    @_tracked("semantic")
     def semantic_pass(self, progress: ProgressCb = None, index=None,
                       cos_threshold: float = 0.90) -> dict:
         """语义去重（第三层）：对已过精确/近似去重的条目建向量索引，把 cos≥阈值 的
@@ -374,7 +484,7 @@ class Orchestrator:
     # 走批量的最小条数：低于此数直接逐条（批量的轮询开销不划算）
     _BATCH_MIN = 8
 
-    def _apply_classification(self, row, r) -> bool:
+    def _apply_classification(self, row, r, classifier_version: str = "") -> bool:
         """把一条分类结果 r 回写台账（算规范名 + 置信路由）。返回是否自动确认。
 
         供批量与逐条两条路径共用，避免逻辑重复。
@@ -387,11 +497,14 @@ class Orchestrator:
                                doc_date=r.doc_date, version="1", ext=ext)
         auto = (r.confidence >= self.threshold and not r.needs_human_review
                 and r.category != self.tx.triage_path)
+        fields = governance_fields(cat, r.doc_date)
         self.led.update(
             key,
             stage=(Stage.CONFIRMED if auto else Stage.CLASSIFIED).value,
             category=r.category, confidence=r.confidence, canonical_name=cname,
             metadata_json=json.dumps(r.model_dump(), ensure_ascii=False, default=str),
+            classifier_version=classifier_version,
+            **fields,
         )
         return auto
 
@@ -400,6 +513,7 @@ class Orchestrator:
         self.led.update(key, stage=Stage.CLASSIFIED.value,
                         category=self.tx.triage_path, confidence=0.0)
 
+    @_tracked("classify")
     def classify_pass(self, classifier: Classifier, progress: ProgressCb = None,
                       use_batch: Optional[bool] = None) -> dict:
         """AI 分类。use_batch=None 时读配置 KBM_CLAUDE_USE_BATCH（默认 True）。
@@ -408,7 +522,7 @@ class Orchestrator:
         （token 5 折）；批量端点不可用（中转网关不代理/超时）时整批回退逐条
         classify_one（带 prompt cache，功能不打折）。
         """
-        stats = {"classified": 0, "auto_confirmed": 0, "to_review": 0}
+        stats = {"classified": 0, "auto_confirmed": 0, "to_review": 0, "failed": 0}
         rows = self.led.items_in_stage(Stage.DEDUPED)
         total = len(rows)
         # 近似重复项先摘出（不送模型）；其余进待分类集
@@ -429,6 +543,10 @@ class Orchestrator:
                 use_batch = False
 
         want_batch = use_batch and classifier.online and len(to_model) >= self._BATCH_MIN
+        classifier_version = (
+            f"anthropic:{classifier.model}" if classifier.online
+            else "offline:heuristic-v1"
+        )
         if want_batch:
             from .classify import BatchUnavailable
             items = [(row["stable_key"], row["original_name"] or "", self.load_text(row["stable_key"]))
@@ -442,7 +560,7 @@ class Orchestrator:
                     if r is None:  # 理论上不会发生（classify_batch 已补齐），保险起见
                         r = classifier.classify_one(self.load_text(row["stable_key"]),
                                                     row["original_name"] or "")
-                    auto = self._apply_classification(row, r)
+                    auto = self._apply_classification(row, r, classifier_version)
                     stats["classified"] += 1
                     stats["auto_confirmed" if auto else "to_review"] += 1
                 return stats
@@ -454,8 +572,13 @@ class Orchestrator:
             key = row["stable_key"]
             _report(progress, done, len(to_model),
                     f"AI 分类 {done}/{len(to_model)}: {row['original_name'] or ''}")
-            r = classifier.classify_one(self.load_text(key), row["original_name"] or "")
-            auto = self._apply_classification(row, r)
+            try:
+                r = classifier.classify_one(self.load_text(key), row["original_name"] or "")
+            except Exception as e:  # noqa: BLE001
+                self.led.mark_failed(key, "classify", str(e))
+                stats["failed"] += 1
+                continue
+            auto = self._apply_classification(row, r, classifier_version)
             stats["classified"] += 1
             stats["auto_confirmed" if auto else "to_review"] += 1
         return stats
@@ -464,36 +587,357 @@ class Orchestrator:
 
     def confirm(self, stable_key: str, category: str,
                 canonical_name_override: Optional[str] = None) -> None:
+        row = self.led.get(stable_key)
+        if not row:
+            raise KeyError(stable_key)
+        if category not in self.tx.category_paths():
+            raise ValueError(f"非法分类：{category}")
+        metadata = json.loads(row["metadata_json"] or "{}") if row else {}
         fields = {"stage": Stage.CONFIRMED.value, "category": category, "confidence": 1.0}
+        fields.update(governance_fields(self.tx.get(category), metadata.get("doc_date")))
         if canonical_name_override:
             fields["canonical_name"] = canonical_name_override
         self.led.update(stable_key, **fields)
+        if row:
+            self.led.record_classification_feedback(stable_key, row["category"], category,
+                                                    row["confidence"])
+
+    def triage_topic_signals(self, limit: int = 20) -> list[tuple[str, int]]:
+        """对待整理正文做轻量词频聚合，辅助人工判断是否应增设目录。"""
+        counts: dict[str, int] = {}
+        for row in self.led.pending_review():
+            if row["category"] != self.tx.triage_path:
+                continue
+            terms = set(re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z][A-Za-z0-9_-]{2,}", self.load_text(row["stable_key"])))
+            for term in terms:
+                counts[term] = counts.get(term, 0) + 1
+        return sorted(counts.items(), key=lambda x: (-x[1], x[0]))[:limit]
+
+    def classification_calibration(self, *, target_precision: float = 0.90,
+                                   min_samples: int = 5) -> dict:
+        """用人工确认反馈评估自动确认阈值，数据不足时不擅自调整。"""
+        rows = self.led.classification_feedback_rows()
+        candidates = []
+        for threshold in (0.50, 0.60, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95):
+            selected = [r for r in rows if float(r["confidence"] or 0) >= threshold]
+            matches = sum(
+                r["suggested_category"] == r["confirmed_category"] for r in selected
+            )
+            candidates.append({
+                "threshold": threshold,
+                "samples": len(selected),
+                "precision": round(matches / len(selected), 3) if selected else None,
+                "coverage": round(len(selected) / len(rows), 3) if rows else 0.0,
+            })
+        eligible = [
+            c for c in candidates
+            if c["samples"] >= min_samples
+            and c["precision"] is not None
+            and c["precision"] >= target_precision
+        ]
+        recommendation = eligible[0]["threshold"] if eligible else self.threshold
+        return {
+            "feedback_samples": len(rows),
+            "target_precision": target_precision,
+            "min_samples": min_samples,
+            "recommended_threshold": recommendation,
+            "current_threshold": self.threshold,
+            "auto_applicable": bool(eligible),
+            "candidates": candidates,
+        }
+
+    @staticmethod
+    def _cluster_terms(text: str) -> set[str]:
+        latin = {
+            word.lower() for word in re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", text)
+        }
+        chinese_runs = re.findall(r"[\u4e00-\u9fff]{2,}", text)
+        bigrams = {
+            run[i:i + 2] for run in chinese_runs for i in range(len(run) - 1)
+        }
+        return latin | bigrams
+
+    def triage_topic_clusters(self, *, limit: int = 20,
+                              similarity: float = 0.20) -> list[dict]:
+        """按正文词项 Jaccard 相似度聚合待整理文档，产出可解释的知识缺口簇。"""
+        docs = []
+        for row in self.led.pending_review():
+            if row["category"] != self.tx.triage_path:
+                continue
+            text = f"{row['original_name'] or ''}\n{self.load_text(row['stable_key'])}"
+            docs.append({
+                "key": row["stable_key"],
+                "name": row["original_name"] or row["stable_key"],
+                "terms": self._cluster_terms(text),
+            })
+        clusters: list[list[dict]] = []
+        for doc in docs:
+            best, best_score = None, 0.0
+            for cluster in clusters:
+                union_terms = set().union(*(member["terms"] for member in cluster))
+                union = doc["terms"] | union_terms
+                score = len(doc["terms"] & union_terms) / len(union) if union else 0.0
+                if score > best_score:
+                    best, best_score = cluster, score
+            if best is not None and best_score >= similarity:
+                best.append(doc)
+            else:
+                clusters.append([doc])
+        result = []
+        for number, cluster in enumerate(
+                sorted(clusters, key=lambda c: (-len(c), c[0]["name"])), 1):
+            frequency: dict[str, int] = {}
+            for member in cluster:
+                for term in member["terms"]:
+                    frequency[term] = frequency.get(term, 0) + 1
+            shared = sorted(frequency, key=lambda t: (-frequency[t], t))[:8]
+            result.append({
+                "cluster": number,
+                "size": len(cluster),
+                "terms": shared,
+                "items": [{"key": d["key"], "name": d["name"]} for d in cluster],
+            })
+        return result[:limit]
+
+    def complete_review(self, stable_key: str, *, actor: str = "",
+                        reviewed_on: date | None = None) -> str:
+        row = self.led.get(stable_key)
+        if not row:
+            raise KeyError(stable_key)
+        category = self.tx.get(row["category"] or "")
+        months = category.review_months if category else 12
+        next_due = add_months(reviewed_on or date.today(), months).isoformat()
+        self.led.complete_review(stable_key, next_due, actor=actor)
+        return next_due
 
     def reject_as_duplicate(self, stable_key: str) -> None:
+        if not self.led.get(stable_key):
+            raise KeyError(stable_key)
         self.led.update(stable_key, stage=Stage.SKIPPED_DUPLICATE.value,
                         dedup_verdict=DedupVerdict.NEAR_DUPLICATE.value)
 
+    def sync_source_permissions(self, writer, stable_key: str, target_token: str,
+                                target_type: str, identity_map: dict[str, str]) -> dict:
+        """把来源权限映射为飞书协作者，并撤销本工具管理的过期授权。
+
+        撤销范围严格限定为 permission_syncs 中本工具曾成功授予的主体，不碰人工
+        在飞书侧添加的协作者。
+        """
+        stats = {"granted": 0, "updated": 0, "revoked": 0,
+                 "skipped": 0, "unmapped": [], "failed": 0}
+        item = self.led.get(stable_key)
+        grants = [(row["principal"], row["role"]) for row in self.led.source_permissions(stable_key)]
+        if item and item["owner"]:
+            grants.append((item["owner"], "full_access"))
+        if item and item["steward"]:
+            grants.append((item["steward"], "edit"))
+        rank = {"view": 1, "edit": 2, "full_access": 3}
+        merged: dict[str, str] = {}
+        for principal, perm in grants:
+            if rank.get(perm, 0) > rank.get(merged.get(principal, ""), 0):
+                merged[principal] = perm
+        previous_rows = self.led.managed_permissions(
+            stable_key, target_token, target_type,
+        )
+        previous: dict[str, object] = {}
+        for old in previous_rows:
+            previous[old["principal"]] = old
+        for principal, perm in merged.items():
+            open_id = resolve_identity(identity_map, principal)
+            if not open_id:
+                stats["unmapped"].append(principal)
+                continue
+            if self.led.permission_sync_succeeded(stable_key, target_token, target_type,
+                                                   principal, perm):
+                stats["skipped"] += 1
+                continue
+            try:
+                old = previous.get(principal)
+                if old:
+                    writer.update_collaborator(
+                        target_token, target_type, open_id, perm=perm,
+                    )
+                    self.led.close_managed_permission(
+                        stable_key, target_token, target_type, principal, "superseded",
+                    )
+                    stats["updated"] += 1
+                else:
+                    writer.add_collaborator(
+                        target_token, target_type, open_id, perm=perm,
+                    )
+                    stats["granted"] += 1
+                self.led.record_permission_sync(stable_key, target_token, target_type,
+                                                principal, open_id, perm, "succeeded")
+            except Exception as e:  # noqa: BLE001
+                self.led.record_permission_sync(stable_key, target_token, target_type,
+                                                principal, open_id, perm, "failed", str(e))
+                stats["failed"] += 1
+        for principal, old in previous.items():
+            if principal in merged:
+                continue
+            try:
+                writer.remove_collaborator(
+                    target_token, target_type, old["feishu_open_id"],
+                )
+                self.led.close_managed_permission(
+                    stable_key, target_token, target_type, principal, "revoked",
+                )
+                stats["revoked"] += 1
+            except Exception:  # noqa: BLE001
+                # 保持 succeeded，后续同步仍会再次尝试撤销。
+                stats["failed"] += 1
+        return stats
+
+    @_tracked("archive")
+    def archive_due_items(self, writer, archive_folder_token: str, *, commit: bool = False,
+                          reason: str = "retention_due", progress: ProgressCb = None,
+                          wiki_space_id: str = "", wiki_archive_node: str = "",
+                          user_token: str = "",
+                          structure_version_id: str = "") -> dict:
+        """将保留期到期的 Drive 文件或 Wiki 节点移入对应的 99 归档目录。"""
+        stats = {"archived": 0, "wiki_archived": 0, "dry_run": 0,
+                 "skipped": 0, "failed": 0}
+        rows = self.led.governance_items(triage_path=self.tx.triage_path)["archive_due"]
+        for done, row in enumerate(rows, 1):
+            key = row["stable_key"]
+            _report(progress, done, len(rows), f"归档 {done}/{len(rows)}: {row['original_name'] or key}")
+            if row["wiki_node_token"]:
+                if not (wiki_space_id and wiki_archive_node):
+                    stats["skipped"] += 1
+                    continue
+                if not commit:
+                    stats["dry_run"] += 1
+                    continue
+                try:
+                    writer.move_wiki_node(
+                        wiki_space_id, row["wiki_node_token"],
+                        wiki_archive_node, user_token=user_token,
+                    )
+                    self.led.mark_archived(key, reason)
+                    stats["archived"] += 1
+                    stats["wiki_archived"] += 1
+                except Exception as e:  # noqa: BLE001
+                    self.led.mark_failed(
+                        key, "archive", str(e), preserve_stage=True,
+                    )
+                    stats["failed"] += 1
+                continue
+            if not row["feishu_token"]:
+                stats["skipped"] += 1
+                continue
+            if not commit:
+                stats["dry_run"] += 1
+                continue
+            try:
+                writer.move_file(row["feishu_token"], archive_folder_token, "file")
+                self.led.mark_archived(key, reason)
+                stats["archived"] += 1
+            except Exception as e:  # noqa: BLE001
+                self.led.mark_failed(key, "archive", str(e))
+                stats["failed"] += 1
+        return stats
+
+    def finalize_source_change(self, change_id: int, writer, archive_folder_token: str,
+                               *, commit: bool = False) -> dict:
+        """新版本已入库后，将旧 Drive 副本归档并完成变更事件。"""
+        change = self.led.get_source_change(change_id)
+        if not change or change["status"] != "materialized":
+            raise ValueError("变更不存在或尚未物化")
+        note = change["resolution_note"] or ""
+        if "derived=" not in note:
+            raise ValueError("变更缺少派生版本关联")
+        derived_key = note.split("derived=", 1)[1].strip()
+        old, new = self.led.get(change["stable_key"]), self.led.get(derived_key)
+        if not new or new["stage"] != Stage.LOADED.value:
+            raise ValueError("新版本尚未完成写入")
+        result = {"old_key": change["stable_key"], "new_key": derived_key, "dry_run": not commit}
+        if not commit:
+            return result
+        if old and old["feishu_token"] and not old["wiki_node_token"]:
+            try:
+                writer.move_file(old["feishu_token"], archive_folder_token, "file")
+                self.led.mark_archived(old["stable_key"], f"superseded_by:{derived_key}")
+            except Exception as e:  # noqa: BLE001
+                self.led.mark_failed(
+                    old["stable_key"], "archive", str(e), preserve_stage=True,
+                )
+                raise
+        self.led.complete_source_change(change_id, f"superseded_by={derived_key}")
+        result["completed"] = True
+        return result
+
+    def resolve_missing_source(self, stable_key: str, action: str, writer=None,
+                               archive_folder_token: str = "", commit: bool = False) -> dict:
+        row = self.led.get(stable_key)
+        if not row or not row["source_missing_at"]:
+            raise ValueError("条目未标记为源端删除")
+        if action == "keep":
+            self.led.resolve_missing_source(stable_key, "keep")
+            return {"kept": True}
+        if action != "archive":
+            raise ValueError("action 必须为 keep/archive")
+        if not commit:
+            return {"dry_run": True, "token": row["feishu_token"]}
+        if row["feishu_token"] and not row["wiki_node_token"]:
+            try:
+                writer.move_file(row["feishu_token"], archive_folder_token, "file")
+                self.led.mark_archived(stable_key, "source_deleted")
+            except Exception as e:  # noqa: BLE001
+                self.led.mark_failed(
+                    stable_key, "archive", str(e), preserve_stage=True,
+                )
+                raise
+        self.led.resolve_missing_source(stable_key, "archived")
+        return {"archived": True}
+
     # ── 阶段 4：load（写飞书）────────────────────────────
 
+    @_tracked("load")
     def load_pass(self, writer, folder_map: dict[str, str],
-                  progress: ProgressCb = None) -> dict:
+                  progress: ProgressCb = None, identity_map: dict[str, str] | None = None,
+                  *, structure_version_id: str = "",
+                  target_node_map: dict[str, str] | None = None,
+                  target_resolver: Callable | None = None) -> dict:
         """folder_map: {category_path: feishu_folder_token}。返回统计。
 
         writer 为 FeishuWriter；为空(None)时进入 dry-run，仅打印将执行的动作。
         """
-        stats = {"loaded": 0, "failed": 0, "dry_run": 0}
+        stats = {"loaded": 0, "failed": 0, "dry_run": 0,
+                 "permissions_granted": 0, "permissions_unmapped": 0, "permissions_failed": 0}
+        identity_map = identity_map or {}
+        target_node_map = target_node_map or {}
         rows = self.led.items_in_stage(Stage.CONFIRMED)
         total = len(rows)
         for done, row in enumerate(rows, 1):
             key = row["stable_key"]
             _report(progress, done, total, f"写飞书 {done}/{total}: {row['original_name'] or ''}")
             category = row["category"] or self.tx.triage_path
-            folder = folder_map.get(category) or folder_map.get(self.tx.triage_path, "")
+            resolved = target_resolver(row) if target_resolver else {}
+            folder = (
+                resolved.get("remote_token")
+                or folder_map.get(category)
+                or folder_map.get(self.tx.triage_path, "")
+            )
+            node_id = (
+                resolved.get("node_id")
+                or target_node_map.get(category)
+                or target_node_map.get(self.tx.triage_path, "")
+            )
+            assignment_source = resolved.get("assignment_source") or "category"
             name = row["canonical_name"] or row["original_name"]
             if writer is None:
                 stats["dry_run"] += 1
                 continue
             try:
+                if not folder:
+                    raise RuntimeError(f"结构版本缺少分类目标目录：{category}")
+                if structure_version_id:
+                    if not node_id:
+                        raise RuntimeError(f"结构版本缺少分类目标节点：{category}")
+                    self.led.assign_structure_target(
+                        key, structure_version_id, node_id,
+                        source=assignment_source, confidence=row["confidence"],
+                    )
                 # 幂等护栏：upload_file 非幂等，重试会产生重复 Drive 文件。
                 # 若已有 feishu_token（上次上传成功、仅后续步骤失败），跳过重传，
                 # 只重跑对外分享收紧。无 token 才走完整上传。
@@ -503,15 +947,24 @@ class Orchestrator:
                 else:
                     file_token = writer.upload_file(row["local_blob_path"], folder, name)
                 writer.lock_down_external(file_token, "file")
+                perm_stats = self.sync_source_permissions(
+                    writer, key, file_token, "file", identity_map)
+                stats["permissions_granted"] += perm_stats["granted"]
+                stats["permissions_unmapped"] += len(perm_stats["unmapped"])
+                stats["permissions_failed"] += perm_stats["failed"]
                 self.led.update(key, stage=Stage.LOADED.value, feishu_token=file_token)
                 stats["loaded"] += 1
             except Exception as e:  # noqa: BLE001
-                self.led.update(key, stage=Stage.FAILED.value, error_detail=f"load: {e}")
+                self.led.mark_failed(key, "load", str(e))
                 stats["failed"] += 1
         return stats
 
     def retry_failed_loads(self, writer, folder_map: dict[str, str],
-                           progress: ProgressCb = None) -> dict:
+                           progress: ProgressCb = None,
+                           identity_map: dict[str, str] | None = None,
+                           *, structure_version_id: str = "",
+                           target_node_map: dict[str, str] | None = None,
+                           target_resolver: Callable | None = None) -> dict:
         """重试写飞书失败的条目：先把 load 阶段失败项重排回 CONFIRMED，再跑 load_pass。
 
         只回捞 error_detail 以 "load: " 开头的 FAILED（不动 fetch/ingest 失败）。
@@ -519,14 +972,23 @@ class Orchestrator:
         """
         n = self.led.requeue_failed(error_prefix="load: ", target_stage=Stage.CONFIRMED)
         _report(progress, 0, n, f"重排 {n} 条写飞书失败项 -> CONFIRMED")
-        stats = self.load_pass(writer, folder_map, progress=progress)
+        stats = self.load_pass(
+            writer, folder_map, progress=progress, identity_map=identity_map,
+            structure_version_id=structure_version_id,
+            target_node_map=target_node_map,
+            target_resolver=target_resolver,
+        )
         stats["requeued"] = n
         return stats
 
     # ── 阶段 5：把已上传云文件挂进 Wiki 节点 ─────────────
 
+    @_tracked("wiki")
     def move_loaded_to_wiki(self, writer, targets: dict, user_token: str = "",
-                            progress: ProgressCb = None) -> dict:
+                            progress: ProgressCb = None,
+                            identity_map: dict[str, str] | None = None,
+                            *, structure_version_id: str = "",
+                            target_resolver: Callable | None = None) -> dict:
         """把 stage=LOADED 的文件挂入 Wiki 对应分类节点（以用户身份重传后挂载）。
 
         targets: bootstrap --wiki 产出，需含 space_id + wiki_node_map{分类: node_token}。
@@ -541,10 +1003,12 @@ class Orchestrator:
         **stage 仍保持 LOADED**（不回退）；wiki_node_token 是否存在即幂等标记：已挂入重跑跳过。
 
         writer 为 None 时 dry-run，仅统计不真实调用。
-        失败不翻 FAILED（避免与 load 失败混淆），仅记 error_detail="wiki: ..."，
-        下次重跑自动重试（仍无 wiki_node_token；writer 侧已回滚孤儿用户副本）。
+        失败保留 LOADED（文件入库事实不回退），同时以 failed_stage=wiki 进入统一失败清单；
+        下次重跑或 retry-failed --stage wiki 均可重试。
         """
-        stats = {"mounted": 0, "skipped": 0, "failed": 0, "dry_run": 0}
+        stats = {"mounted": 0, "skipped": 0, "failed": 0, "dry_run": 0,
+                 "permissions_granted": 0, "permissions_unmapped": 0}
+        identity_map = identity_map or {}
         space_id = targets.get("space_id") or ""
         node_map = targets.get("wiki_node_map") or {}
         rows = self.led.items_in_stage(Stage.LOADED)
@@ -558,20 +1022,44 @@ class Orchestrator:
                 continue
             blob = row["local_blob_path"]
             if not blob or not os.path.exists(blob):   # 无本地副本，无从以用户身份重传
-                stats["skipped"] += 1
+                self.led.mark_failed(
+                    key, "wiki", "缺少本地文件副本，无法以用户身份重传",
+                    retryable=False, preserve_stage=True,
+                )
+                stats["failed"] += 1
                 continue
             category = row["category"] or self.tx.triage_path
-            parent = node_map.get(category) or node_map.get(self.tx.triage_path, "")
+            resolved = target_resolver(row) if target_resolver else {}
+            parent = (
+                resolved.get("remote_token")
+                or node_map.get(category)
+                or node_map.get(self.tx.triage_path, "")
+            )
             if writer is None:
                 stats["dry_run"] += 1
                 continue
             try:
+                if not parent:
+                    raise RuntimeError(f"结构版本缺少 Wiki 分类目标：{category}")
+                if structure_version_id and resolved.get("node_id"):
+                    self.led.assign_structure_target(
+                        key, structure_version_id, resolved["node_id"],
+                        source=resolved.get("assignment_source") or "category",
+                        confidence=row["confidence"],
+                    )
                 res = writer.upload_as_user_and_mount(space_id, blob, name, parent,
                                                       user_token=user_token)
                 wiki_token = res.get("wiki_token")
                 if not wiki_token:               # 未确认挂载成功：不记幂等标记，下次重试
                     raise RuntimeError("未返回 wiki_token（挂载未确认）")
-                self.led.update(key, wiki_node_token=wiki_token, error_detail=None)
+                self.led.update(
+                    key, wiki_node_token=wiki_token, error_detail=None,
+                    failed_stage=None,
+                )
+                perm_stats = self.sync_source_permissions(
+                    writer, key, wiki_token, "wiki", identity_map)
+                stats["permissions_granted"] += perm_stats["granted"]
+                stats["permissions_unmapped"] += len(perm_stats["unmapped"])
                 stats["mounted"] += 1
                 # 成功后清理租户旧副本（进回收站，可恢复），避免云空间与 Wiki 重复
                 old = row["feishu_token"]
@@ -581,7 +1069,9 @@ class Orchestrator:
                     except Exception:  # noqa: BLE001  清理失败不影响迁移成功事实
                         pass
             except Exception as e:  # noqa: BLE001
-                self.led.update(key, error_detail=f"wiki: {e}")
+                self.led.mark_failed(
+                    key, "wiki", str(e), preserve_stage=True,
+                )
                 stats["failed"] += 1
         return stats
 

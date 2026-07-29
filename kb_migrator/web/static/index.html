@@ -7,13 +7,17 @@
 <style>
  :root{--blue:#3370ff;--bg:#f5f6f8;--line:#e6e8eb;--muted:#8a919f;--ok:#2ea121;--err:#d83931}
  *{box-sizing:border-box}
+ [hidden]{display:none!important}
  body{font-family:system-ui,'Microsoft YaHei',sans-serif;margin:0;background:var(--bg);color:#1f2329}
- header{background:var(--blue);color:#fff;padding:12px 24px;font-size:17px;font-weight:600}
- nav{background:#fff;border-bottom:1px solid var(--line);padding:0 16px;display:flex;gap:2px;position:sticky;top:0;z-index:5}
- nav button{background:none;border:none;padding:14px 16px;font-size:14px;cursor:pointer;color:#4e5969;border-bottom:2px solid transparent}
+ header{background:var(--blue);color:#fff;padding:12px 24px;font-size:17px;font-weight:600;display:flex;align-items:center;justify-content:space-between;gap:12px}
+ .runtime-badge{font-size:11px;font-weight:400;background:rgba(255,255,255,.18);padding:4px 9px;border-radius:12px;white-space:nowrap}
+ .runtime-error{border-left:4px solid var(--err)}
+ nav{background:#fff;border-bottom:1px solid var(--line);padding:0 16px;display:flex;gap:2px;position:sticky;top:0;z-index:5;overflow-x:auto;white-space:nowrap}
+ nav button{background:none;border:none;padding:14px 16px;font-size:14px;cursor:pointer;color:#4e5969;border-bottom:2px solid transparent;flex:0 0 auto}
  nav button.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}
+ nav button:disabled{cursor:not-allowed;opacity:.55}
  main{max-width:1080px;margin:20px auto;padding:0 16px}
- .card{background:#fff;border-radius:8px;padding:18px 20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+ .card{background:#fff;border-radius:8px;padding:18px 20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.06);overflow-x:auto}
  .card h3{margin:0 0 12px}
  .tiles{display:flex;flex-wrap:wrap;gap:12px}
  .tile{flex:1;min-width:130px;background:#f8f9fb;border:1px solid var(--line);border-radius:8px;padding:12px 14px}
@@ -23,8 +27,8 @@
  label{display:block;font-size:13px;color:#4e5969;margin:10px 0 4px}
  input,select{width:100%;font-size:14px;padding:7px 9px;border:1px solid #d0d3d9;border-radius:6px}
  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}
- button.btn{background:var(--blue);color:#fff;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:14px}
- button.ghost{background:#eef0f3;color:#1f2329}
+ button.btn,a.btn{display:inline-block;background:var(--blue);color:#fff;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:14px;text-decoration:none}
+ button.ghost,a.ghost{background:#eef0f3;color:#1f2329}
  button.btn:disabled{opacity:.5;cursor:not-allowed}
  .pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;background:#e8f0fe;color:var(--blue)}
  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
@@ -39,25 +43,183 @@
  .toast.show{opacity:.95}
  .grp{font-size:12px;color:var(--muted);margin:14px 0 2px;font-weight:600;border-top:1px dashed var(--line);padding-top:10px}
  .hint{background:#fff8e6;border:1px solid #ffe08a;border-radius:6px;padding:10px 12px;font-size:12px;color:#8a6d00;margin-top:8px}
+ .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+ .scroll-window{max-height:310px;overflow:auto;border:1px solid var(--line);border-radius:7px}
+ .scroll-window table{min-width:620px}
+ .scroll-window th{position:sticky;top:0;background:#fff;z-index:1}
+ .integration-list{display:flex;gap:10px 22px;flex-wrap:wrap;line-height:1.8}
+ .integration-item{white-space:nowrap}
+ .service-health-note{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-top:12px;padding:10px 12px;border-radius:7px;border:1px solid #b7dfb0;background:#f3fbf1;color:#237b1b;font-size:12px}
+ .service-health-note.bad{border-color:#ffd0cc;background:#fff4f3;color:#a80700}
+ .service-health-note .btn{flex:0 0 auto;padding:5px 10px;font-size:12px}
+ .migration-flow{display:grid;grid-template-columns:minmax(0,1fr) 48px minmax(0,1fr) 48px minmax(0,1fr);align-items:center;margin-bottom:18px}
+ .migration-tab{min-height:74px;border:1px solid var(--line);background:#fff;color:#4e5969;border-radius:10px;padding:10px 13px;cursor:pointer;text-align:left;display:flex;align-items:center;gap:10px;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+ .migration-tab:hover:not(:disabled){border-color:#8fb0ff;background:#f7f9ff}
+ .migration-tab.active{background:#e8f0fe;border-color:#8fb0ff;color:#1f5eff;box-shadow:0 0 0 2px rgba(51,112,255,.08)}
+ .migration-tab.complete{border-color:#8bd481;background:#f3fbf1}
+ .migration-tab:disabled{background:#f5f6f8;color:#a8abb2;border-color:#e6e8eb;cursor:not-allowed;box-shadow:none}
+ .flow-number{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;flex:0 0 30px;background:#eef0f3;color:#646a73;font-weight:700}
+ .migration-tab.active .flow-number{background:var(--blue);color:#fff}
+ .migration-tab.complete .flow-number{background:var(--ok);color:#fff}
+ .migration-tab:disabled .flow-number{background:#e6e8eb;color:#a8abb2}
+ .flow-copy{min-width:0}.flow-copy strong{display:block;font-size:14px}.flow-copy small{display:block;color:var(--muted);font-size:11px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .flow-arrow{height:2px;background:#d8dbe2;position:relative;margin:0 8px}
+ .flow-arrow::after{content:"";position:absolute;right:-1px;top:-4px;border-left:7px solid #d8dbe2;border-top:5px solid transparent;border-bottom:5px solid transparent}
+ .flow-arrow.complete{background:#8bd481}.flow-arrow.complete::after{border-left-color:#8bd481}
+ .migration-layout{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:16px;align-items:stretch}
+ .migration-main{min-width:0}
+ .migration-main>[data-migrate-stage]{min-width:0}
+ .migration-main>[data-migrate-stage]:not(.migration-grid){display:flex;flex-direction:column;gap:16px}
+ .migration-main>[data-migrate-stage]>.card{margin:0}
+ .migration-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+ .migration-grid .card{margin:0;min-width:0}
+ .migration-monitor{position:static;margin:0;height:100%;display:flex;flex-direction:column}
+ .migration-monitor #job-panel{flex:1;min-height:0;display:flex;flex-direction:column}
+ .migration-monitor pre.log{max-height:none;min-height:100px;flex:1}
+ .migration-monitor-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:12px}
+ .migration-monitor-head h3{margin:0 0 3px}
+ .monitor-tools{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+ .monitor-tools .btn{padding:5px 9px;font-size:12px;white-space:nowrap}
+ .operation-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+ .operation-item{border:1px solid var(--line);border-radius:8px;background:#fafbfc;padding:12px}
+ .operation-item h4{margin:0 0 8px}
+ .operation-item .actions .btn{flex:1;min-width:108px}
+ .governance-hero{background:linear-gradient(135deg,#fff 0%,#f3f7ff 100%);border:1px solid #e2eaff}
+ .governance-title{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:16px}
+ .governance-title h3{margin-bottom:5px}
+ .governance-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+ .governance-metric{background:rgba(255,255,255,.88);border:1px solid var(--line);border-radius:9px;padding:12px 14px}
+ .governance-metric .num{font-size:24px;font-weight:700;line-height:1.1}
+ .governance-metric .lbl{font-size:12px;color:var(--muted);margin-top:5px}
+ .governance-layout{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(280px,.8fr);gap:16px;align-items:start}
+ .governance-layout .card{margin-bottom:16px}
+ .governance-stack{min-width:0}
+ .governance-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:12px}
+ .governance-card-head h3{margin:0}
+ .queue-section{border:1px solid var(--line);border-radius:8px;background:#fafbfc;margin-top:10px;overflow:hidden}
+ .queue-section summary{cursor:pointer;list-style:none;padding:11px 13px;background:#fff;font-weight:600;display:flex;align-items:center;justify-content:space-between}
+ .queue-section summary::-webkit-details-marker{display:none}
+ .queue-section summary::before{content:"▸";color:var(--muted);margin-right:7px}
+ .queue-section[open] summary::before{content:"▾"}
+ .queue-section summary span:first-child{display:flex;align-items:center;flex:1;margin-left:1px}
+ .queue-count{font-size:12px;min-width:26px;text-align:center;padding:2px 8px;border-radius:12px;background:#eef0f3;color:#646a73}
+ .queue-section.has-items .queue-count{background:#fff3d6;color:#8a5d00}
+ .governance-scroll{max-height:330px;overflow:auto;border-top:1px solid var(--line);background:#fff}
+ .governance-scroll table{min-width:600px}
+ .governance-scroll th{position:sticky;top:0;background:#fff;z-index:1}
+ .failure-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:9px}
+ .failure-toolbar .btn{padding:6px 11px;font-size:12px}
+ .failure-select{width:15px;height:15px;margin:0;cursor:pointer}
+ .failure-action{white-space:nowrap}
+ .calibration-panel{background:linear-gradient(135deg,#f6f9ff,#fff);border:1px solid #dce6ff;border-radius:8px;padding:13px}
+ .calibration-values{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:10px}
+ .calibration-value{background:#fff;border-radius:7px;padding:10px;border:1px solid var(--line)}
+ .calibration-value b{display:block;font-size:20px;color:var(--blue)}
+ .governance-wide{margin-top:0}
+ .structure-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+ .structure-toolbar .spacer{flex:1}
+ .structure-board{display:grid;grid-template-columns:minmax(320px,1.25fr) minmax(220px,.8fr) minmax(280px,1fr);gap:12px;min-width:900px}
+ .structure-pane{border:1px solid var(--line);border-radius:8px;background:#fafbfc;min-height:420px;overflow:hidden}
+ .structure-pane>h4{margin:0;padding:12px 14px;background:#fff;border-bottom:1px solid var(--line)}
+ .structure-pane-body{padding:10px;max-height:560px;overflow:auto}
+ .tree-row{display:flex;align-items:center;gap:6px;min-height:38px;padding:4px 6px;border:1px solid transparent;border-radius:6px}
+ .tree-row:hover{background:#fff;border-color:var(--line)}
+ .tree-row.drag-over{border-color:var(--blue);background:#e8f0fe}
+ .tree-row input{padding:5px 7px;min-width:100px;width:auto;flex:1}
+ .tree-row input.tree-select{width:14px;min-width:14px;flex:0 0 14px;padding:0}
+ .tree-grip{cursor:grab;color:#8a919f;user-select:none}
+ .tree-meta{font-size:11px;color:var(--muted);white-space:nowrap}
+ .tree-mini{border:0;background:transparent;color:#4e5969;cursor:pointer;padding:3px 5px;border-radius:4px}
+ .tree-mini:hover{background:#eef0f3;color:var(--blue)}
+ .tree-actions{display:flex;align-items:center;gap:1px}
+.remote-row{padding:7px 8px;border-radius:5px;font-size:13px}
+.remote-row:hover{background:#fff}
+.remote-node-line{display:flex;align-items:center;gap:3px}
+.remote-toggle{width:22px;flex:0 0 22px;text-align:center}
+.remote-tree-tools{display:flex;gap:5px;align-items:center;margin:7px 0}
+ .action-row{border-left:3px solid #c9cdd4;background:#fff;border-radius:4px;margin-bottom:7px;padding:8px 9px;font-size:12px}
+ .action-row.CREATE{border-color:#2ea121}.action-row.MAP,.action-row.NOOP{border-color:#3370ff}
+ .action-row.RENAME,.action-row.MOVE{border-color:#f5a623}.action-row.CONFLICT{border-color:#d83931}
+ .action-row.MERGE{border-color:#7b61ff}.action-row.RETIRE,.action-row.REMOTE_ONLY{border-color:#8a919f}
+ .status-chip{display:inline-block;border-radius:12px;padding:3px 9px;background:#eef0f3;font-size:12px}
+ .status-chip.draft{background:#fff3d6;color:#8a5d00}.status-chip.reviewing{background:#e8f3ff;color:#1456a0}.status-chip.approved,.status-chip.active{background:#e9f7e7;color:#237b1b}
+ .validation-box{margin-top:12px;padding:10px 12px;border-radius:6px;background:#f8f9fb;font-size:12px}
+ .validation-box.bad{background:#fff0ef;color:#a80700}.validation-box.good{background:#edf8eb;color:#237b1b}
+ .dirty-mark{color:#d46b08;font-size:12px}
+ dialog{border:0;border-radius:10px;padding:20px;box-shadow:0 12px 48px rgba(0,0,0,.22);width:min(460px,calc(100vw - 28px))}
+ dialog::backdrop{background:rgba(31,35,41,.38)}
+ .rule-row{display:grid;grid-template-columns:1.3fr 1fr 1fr 1.3fr 64px auto;gap:6px;align-items:end;margin:8px 0}
+ .rule-row label{font-size:11px;color:var(--muted)}
+ .rule-row input,.rule-row select{width:100%;margin:2px 0 0}
+ .relocation-panel{margin-top:12px;border:1px solid var(--line);border-radius:8px;padding:12px;background:#fff}
+ .relocation-list{max-height:260px;overflow:auto;margin-top:8px}
+ .relocation-row{display:grid;grid-template-columns:24px minmax(160px,1fr) minmax(150px,1fr) 90px;gap:8px;align-items:center;padding:7px 4px;border-bottom:1px solid var(--line);font-size:12px}
+ .relocation-row input{width:auto}
  code{background:#f0f1f3;padding:1px 5px;border-radius:4px}
+ @media(max-width:640px){
+   html,body{max-width:100%;overflow-x:hidden}
+   header{padding:11px 16px}
+   nav{padding:0 8px}
+   nav button{padding:12px 11px}
+   main{width:100%;max-width:100%;margin:12px auto;padding:0 10px}
+   .card{width:100%;max-width:100%;padding:15px 14px;overflow-x:hidden}
+   .grid2{grid-template-columns:1fr}
+   .migration-layout{display:flex;flex-direction:column}
+   .migration-flow{display:flex;align-items:stretch;overflow-x:auto;padding-bottom:5px}
+   .migration-tab{min-width:190px}
+   .flow-arrow{min-width:28px;margin:auto 5px}
+   .migration-monitor{position:static;order:-1;width:100%;height:auto}
+   .migration-monitor #job-panel{display:block}
+   .migration-monitor pre.log{max-height:280px;min-height:0}
+   .migration-grid,.operation-grid{grid-template-columns:1fr}
+   .governance-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+   .governance-layout{grid-template-columns:1fr}
+   .tile{min-width:calc(50% - 6px)}
+   .structure-board{display:block;min-width:0}
+   .structure-pane{min-height:260px;margin-bottom:12px}
+   .structure-pane-body{max-height:360px}
+   .structure-toolbar{width:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+   .structure-toolbar h3{grid-column:span 2}
+   .structure-toolbar .spacer{display:none}
+   .structure-toolbar .dirty-mark{grid-column:1/-1}
+   .structure-toolbar .btn{width:100%;min-width:0;padding:8px 4px;white-space:nowrap}
+   .tree-row{width:100%;max-width:100%;padding-left:4px!important;flex-wrap:wrap;overflow:hidden}
+   .tree-row>input:not(.tree-select){flex:1 1 160px;min-width:0;width:0}
+   .tree-meta{display:none}
+   .rule-row{grid-template-columns:1fr 1fr}
+   .relocation-panel>.actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+   .relocation-panel>.actions .muted{grid-column:1/-1}
+   .relocation-panel>.actions .btn{width:100%;min-width:0;padding-left:5px;padding-right:5px}
+   .relocation-row{grid-template-columns:24px 1fr 72px}
+   .relocation-route{grid-column:2/4}
+   .tree-mini{padding:3px}
+   .tree-actions{width:100%;flex:0 0 100%;justify-content:flex-start;padding-left:58px}
+   .tree-mini[title="上移"],.tree-mini[title="下移"]{display:none}
+ }
 </style>
 </head>
 <body>
-<header>组织知识飞书迁移 · 控制台</header>
+<header>
+  <span>组织知识飞书迁移 · 控制台</span>
+  <span id="runtime-status" class="runtime-badge">正在检查服务…</span>
+</header>
 <nav id="nav">
   <button data-tab="overview" class="active">概览</button>
   <button data-tab="config">配置</button>
   <button data-tab="auth">授权</button>
+  <button data-tab="targets">结构工作台</button>
   <button data-tab="migrate">迁移</button>
   <button data-tab="review">确认队列</button>
-  <button data-tab="targets">目标结构</button>
+  <button data-tab="governance">治理</button>
 </nav>
 <main>
+  <div id="runtime-banner"></div>
   <section id="tab-overview"></section>
   <section id="tab-config" hidden></section>
   <section id="tab-auth" hidden></section>
   <section id="tab-migrate" hidden></section>
   <section id="tab-review" hidden></section>
+  <section id="tab-governance" hidden></section>
   <section id="tab-targets" hidden></section>
 </main>
 <div id="toast" class="toast"></div>
@@ -66,20 +228,78 @@
 const $ = (s,r=document)=>r.querySelector(s);
 const esc = s => (s??'').toString().replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600);}
+const CLIENT_API_PROTOCOL=1;
+const REQUIRED_CAPABILITIES=['structure_workbench','structure_reconciliation','item_relocation'];
+let RUNTIME={ready:false,meta:null};
 async function api(path, method='GET', body){
-  const opt={method,headers:{}};
+  const opt={method,headers:{},cache:'no-store'};
   if(body!==undefined){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body);}
   const r=await fetch(path,opt);
-  if(!r.ok){let e;try{e=await r.json()}catch{e={error:r.statusText}}; throw new Error(e.error||('HTTP '+r.status));}
+  if(!r.ok){
+    let e;try{e=await r.json()}catch{e={error:r.statusText}}
+    const detail=Array.isArray(e.detail)?e.detail.map(x=>x.msg).join('；'):e.detail;
+    const error=new Error(e.error||detail||('HTTP '+r.status));
+    error.status=r.status;error.path=path;error.payload=e;throw error;
+  }
   return r.json();
+}
+
+async function checkRuntimeCompatibility(){
+  const meta=await api('/api/meta');
+  if(Number(meta.api_protocol)!==CLIENT_API_PROTOCOL){
+    const error=new Error(`前后端接口协议不兼容：页面需要 v${CLIENT_API_PROTOCOL}，当前后端为 v${meta.api_protocol??'未知'}`);
+    error.path='/api/meta';throw error;
+  }
+  const missing=REQUIRED_CAPABILITIES.filter(name=>!(meta.capabilities||[]).includes(name));
+  if(missing.length){
+    const error=new Error('后端缺少结构工作台能力：'+missing.join('、'));
+    error.path='/api/meta';throw error;
+  }
+  await api('/api/health/ready');
+  return meta;
+}
+
+async function bootConsole(){
+  const banner=$('#runtime-banner'),badge=$('#runtime-status');
+  RUNTIME={ready:false,meta:null};
+  [...$('#nav').querySelectorAll('button')].forEach(button=>button.disabled=true);
+  badge.textContent='正在检查服务…';
+  banner.innerHTML='<div class="card">正在验证控制台版本和本地数据…</div>';
+  try{
+    const meta=await checkRuntimeCompatibility();
+    RUNTIME={ready:true,meta};
+    badge.textContent=`API ${esc(meta.api_version)} · ${esc(meta.instance_id)}`;
+    badge.title=`应用 ${meta.app_version}，服务启动于 ${meta.started_at}`;
+    banner.innerHTML='';
+    [...$('#nav').querySelectorAll('button')].forEach(button=>button.disabled=false);
+    const initialTab=new URLSearchParams(location.search).get('tab');
+    const initialButton=initialTab&&document.querySelector(`#nav button[data-tab="${CSS.escape(initialTab)}"]`);
+    (initialButton||document.querySelector('#nav button[data-tab="overview"]')).click();
+  }catch(e){
+    const stale=e.status===404;
+    const readiness=(e.payload&&e.payload.failures||[]).join('；');
+    badge.textContent='服务不可用';
+    badge.title=e.message;
+    document.querySelectorAll('main section').forEach(section=>section.hidden=true);
+    banner.innerHTML=`<div class="card runtime-error">
+      <h3>${stale?'检测到旧版后端进程':'控制台启动检查失败'}</h3>
+      <p>${esc(stale?'当前服务缺少版本握手接口，页面与后端不是同一版本。':e.message)}</p>
+      ${readiness?`<p class="muted">${esc(readiness)}</p>`:''}
+      ${e.path?`<p class="muted">失败接口：${esc(e.path)}</p>`:''}
+      <div class="hint">请在项目目录执行 <code>python console.py restart</code>，然后点击“重新检查”。</div>
+      <p><button class="btn" onclick="bootConsole()">重新检查</button>
+         <button class="btn ghost" onclick="location.reload()">刷新页面</button></p>
+    </div>`;
+  }
 }
 
 // ── 标签切换 ──
 $('#nav').addEventListener('click',e=>{
   const b=e.target.closest('button'); if(!b)return;
   [...$('#nav').children].forEach(x=>x.classList.toggle('active',x===b));
+  b.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'});
   const tab=b.dataset.tab;
-  ['overview','config','auth','migrate','review','targets'].forEach(t=>$('#tab-'+t).hidden=(t!==tab));
+  ['overview','config','auth','migrate','review','governance','targets'].forEach(t=>$('#tab-'+t).hidden=(t!==tab));
   RENDER[tab]&&RENDER[tab]();
 });
 
@@ -89,6 +309,14 @@ async function renderOverview(){
   try{
     const s=await api('/api/status');
     const dot=b=>`<span class="dot ${b?'on':'off'}"></span>`;
+    const ai=s.claude_health||{
+      ready:!!s.claude_ready,label:s.claude_ready?'连接正常':'未检测',
+      message:s.claude_ready?'Claude 分类已配置':'Claude 分类尚未配置'
+    };
+    const sp=s.sharepoint_health||{
+      ready:!!s.sharepoint_ready,label:s.sharepoint_ready?'连接正常':'未检测',
+      message:s.sharepoint_ready?'SharePoint 已配置':'SharePoint 尚未配置'
+    };
     el.innerHTML=`
     <div class="card"><h3>迁移进度</h3>
       <div class="tiles">
@@ -99,12 +327,63 @@ async function renderOverview(){
       <p class="muted" style="margin-top:12px">沉淀比例（已入飞书/台账总数）：<b style="font-size:16px;color:var(--blue)">${s.sink_ratio}%</b></p>
     </div>
     <div class="card"><h3>接入状态</h3>
-      <p>${dot(s.feishu_ready)}飞书应用凭证 &nbsp;&nbsp; ${dot(s.claude_ready)}Claude 分类 &nbsp;&nbsp;
-         ${dot(s.wecom_ready)}企业微信微盘 &nbsp;&nbsp; ${dot(s.oauth_token)}飞书 OAuth(建空间)</p>
+      <div class="integration-list">
+        <span class="integration-item">${dot(s.feishu_ready)}飞书应用凭证</span>
+        <span class="integration-item">${dot(s.oauth_token)}飞书 OAuth（建空间）</span>
+        <span class="integration-item">${dot(s.claude_ready)}Claude 分类</span>
+        <span class="integration-item">${dot(s.sharepoint_ready)}SharePoint</span>
+        <span class="integration-item">${dot(s.wecom_ready)}企业微信微盘</span>
+        <span class="integration-item" title="需要 Corp ID、会话存档 Secret、RSA 私钥文件和原生 SDK">${dot(s.wecom_chat_ready)}企业微信群聊（会话存档）</span>
+      </div>
+      <div class="service-health-note ${ai.ready?'':'bad'}">
+        <div><b>Claude：${esc(ai.label||'状态未知')}</b><div>${esc(ai.message||'')}</div>
+          ${ai.checked_at?`<div style="opacity:.72;margin-top:3px">检测时间：${esc(ai.checked_at)}</div>`:''}</div>
+        <button class="btn ${ai.ready?'ghost':''}" onclick="refreshAIHealth(this)">重新检测</button>
+      </div>
+      <div class="service-health-note ${sp.ready?'':'bad'}">
+        <div><b>SharePoint：${esc(sp.label||'状态未知')}</b><div>${esc(sp.message||'')}</div>
+          ${sp.checked_at?`<div style="opacity:.72;margin-top:3px">检测时间：${esc(sp.checked_at)}</div>`:''}</div>
+        <button class="btn ${sp.ready?'ghost':''}" onclick="refreshSharePointHealth(this)">重新检测</button>
+      </div>
       <p class="muted">目标结构：${s.targets_mode?esc(s.targets_mode)+'（'+s.targets_count+' 个分类文件夹）':'未初始化，去「目标结构」页 bootstrap'}</p>
+      ${!s.wecom_chat_ready?`<p class="muted">群聊接入检查：Corp ID ${s.wecom_chat_checks.corp_id?'✓':'×'} ·
+        存档 Secret ${s.wecom_chat_checks.archive_secret?'✓':'×'} · RSA 私钥 ${s.wecom_chat_checks.private_key_file?'✓':'×'} ·
+        原生 SDK ${s.wecom_chat_checks.sdk_library?'✓':'×'}</p>`:''}
     </div>
-    <div class="card"><h3>最近任务</h3>${jobsTable(s.jobs)}</div>`;
+    <div class="card"><h3>知识健康度</h3>
+      <div class="tiles">
+        ${tile('综合健康',s.health.healthy+'%')}
+        ${tile('责任人覆盖',s.health.owner_coverage+'%')}
+        ${tile('有效归类',s.health.classified_coverage+'%')}
+        ${tile('复审未逾期',s.health.review_current+'%')}
+      </div>
+      <p class="muted">当前活跃知识 ${s.health.active} 条；复审到期 ${s.governance.review_due||0}，保留期到期 ${s.governance.archive_due||0}，无责任人 ${s.governance.unowned||0}。</p>
+    </div>
+    <div class="card"><h3>最近 Web 任务</h3><div class="scroll-window">${jobsTable(s.jobs)}</div></div>
+    <div class="card"><h3>最近管线批次</h3><div class="scroll-window">${runsTable(s.pipeline_runs)}</div></div>`;
   }catch(e){el.innerHTML=`<div class="card">加载失败：${esc(e.message)}</div>`;}
+}
+async function refreshAIHealth(button){
+  if(button)button.disabled=true;
+  try{
+    const health=await api('/api/ai/health','POST',{force:true});
+    toast(`Claude：${health.label||health.message}`);
+    await renderOverview();
+  }catch(e){
+    toast('检测失败：'+e.message);
+    if(button)button.disabled=false;
+  }
+}
+async function refreshSharePointHealth(button){
+  if(button)button.disabled=true;
+  try{
+    const health=await api('/api/sharepoint/health','POST',{force:true});
+    toast(`SharePoint：${health.label||health.message}`);
+    await renderOverview();
+  }catch(e){
+    toast('SharePoint 检测失败：'+e.message);
+    if(button)button.disabled=false;
+  }
 }
 const tile=(l,v)=>`<div class="tile"><div class="num">${v??0}</div><div class="lbl">${l}</div></div>`;
 function jobsTable(jobs){
@@ -112,27 +391,35 @@ function jobsTable(jobs){
   return '<table><tr><th>类型</th><th>状态</th><th>最新</th></tr>'+jobs.map(j=>
     `<tr><td>${esc(j.type)}</td><td>${statusBadge(j.status)}</td><td class="muted">${esc((j.log[0]||''))}</td></tr>`).join('')+'</table>';
 }
-const statusBadge=s=>({pending:'⏳ 等待',running:'▶ 运行中',success:'✅ 成功',error:'❌ 失败'}[s]||s);
+const statusBadge=s=>({pending:'⏳ 等待',running:'▶ 运行中',success:'✅ 成功',error:'❌ 失败',cancelled:'⏹ 已取消',interrupted:'⚠ 已中断'}[s]||s);
 
 // ── 配置 ──
 async function renderConfig(){
   const el=$('#tab-config'); el.innerHTML='<div class="card">加载中…</div>';
-  const {fields}=await api('/api/settings');
-  const groups={};
-  for(const [k,f] of Object.entries(fields)){(groups[f.group]=groups[f.group]||[]).push([k,f]);}
-  let html='<div class="card"><h3>凭证与参数</h3><div class="grid2">';
-  for(const [g,arr] of Object.entries(groups)){
-    html+=`<div style="grid-column:1/-1" class="grp">${g}</div>`;
-    for(const [k,f] of arr){
-      const ph=f.configured?(f.sensitive?f.value:''):'未配置';
-      html+=`<div><label>${k}${f.sensitive?' 🔒':''}</label>
-        <input data-key="${k}" value="${esc(f.sensitive?'':f.value)}" placeholder="${esc(ph)}"></div>`;
+  try{
+    const {fields}=await api('/api/settings');
+    const groups={};
+    for(const [k,f] of Object.entries(fields)){(groups[f.group]=groups[f.group]||[]).push([k,f]);}
+    let html='<div class="card"><h3>凭证与参数</h3><div class="grid2">';
+    for(const [g,arr] of Object.entries(groups)){
+      html+=`<div style="grid-column:1/-1" class="grp">${g}</div>`;
+      for(const [k,f] of arr){
+        const ph=f.configured?(f.sensitive?f.value:''):'未配置';
+        html+=`<div><label>${k}${f.sensitive?' 🔒':''}</label>
+          <input data-key="${k}" value="${esc(f.sensitive?'':f.value)}" placeholder="${esc(ph)}"></div>`;
+      }
     }
+    html+='</div>'
+      +'<div class="hint">密钥类字段留空=不修改（脱敏回显）。群聊 RSA 私钥只填<b>文件路径</b>，不要粘贴私钥内容。</div>'
+      +'<p style="margin-top:14px"><button class="btn" onclick="saveConfig()">保存到 .env 并热生效</button></p></div>';
+    el.innerHTML=html;
+  }catch(e){
+    const hint=e.status===404?
+      '后端服务仍是旧版本，缺少结构工作台接口。请重启控制台服务后刷新页面。':
+      e.message;
+    el.innerHTML=`<div class="card">加载失败：${esc(hint)}
+      ${e.path?`<p class="muted">失败接口：${esc(e.path)}</p>`:''}</div>`;
   }
-  html+='</div>'
-    +'<div class="hint">密钥类字段留空=不修改（脱敏回显）。群聊 RSA 私钥只填<b>文件路径</b>，不要粘贴私钥内容。</div>'
-    +'<p style="margin-top:14px"><button class="btn" onclick="saveConfig()">保存到 .env 并热生效</button></p></div>';
-  el.innerHTML=html;
 }
 async function saveConfig(){
   const payload={};
@@ -147,7 +434,12 @@ async function renderAuth(){
   el.innerHTML=`
   <div class="card"><h3>飞书授权（建 Wiki 知识空间需要）</h3>
     <p class="muted">点击跳转飞书授权页，回调后 user_access_token 自动落盘。需应用已开通 <code>wiki:wiki</code> 且登记重定向 URL。</p>
-    <p><a href="/api/oauth/feishu/login"><button class="btn">前往飞书授权</button></a></p>
+    <p><a class="btn" href="/api/oauth/feishu/login">前往飞书授权</a></p>
+  </div>
+  <div class="card"><h3>企业微信接入</h3>
+    <p>当前微盘和会话存档采用企业内部应用的服务端凭证接入，不依赖成员 OAuth，因此不提供容易产生误解的“前往企业微信授权”按钮。</p>
+    <p class="muted">请在「配置」填写 Corp ID、微盘 Secret；会话存档还需 Archive Secret、RSA 私钥文件和原生 SDK，并在企业微信管理后台配置可信 IP 与消息加密公钥。</p>
+    <p><a class="btn ghost" href="https://work.weixin.qq.com/wework_admin/frame" target="_blank" rel="noopener">打开企业微信管理后台</a></p>
   </div>
   <div class="card"><h3>连接测试</h3>
     <p><button class="btn ghost" onclick="testConn('feishu')">测试飞书应用凭证</button>
@@ -163,117 +455,1313 @@ async function testConn(which){
 }
 
 // ── 迁移 ──
-function renderMigrate(){
+let MIGRATE_STAGE='sources';
+let MIGRATION_FLOW=null;
+let MIGRATION_JOB_VIEW=0;
+const MIGRATION_INPUT_KEY='kbm:migration-inputs:v1';
+const MIGRATION_JOB_KEY='kbm:last-migration-job:v1';
+const MIGRATION_INPUT_IDS=[
+  'scan-path','sp-site','wd-spaces','chat-id','chat-name',
+  'semantic-threshold','govern-chat-id','govern-url'
+];
+function readBrowserValue(key,fallback=null){
+  try{
+    const raw=localStorage.getItem(key);
+    return raw===null?fallback:JSON.parse(raw);
+  }catch{return fallback;}
+}
+function writeBrowserValue(key,value){
+  try{localStorage.setItem(key,JSON.stringify(value));return true;}catch{return false;}
+}
+function removeBrowserValue(key){
+  try{localStorage.removeItem(key);}catch{}
+}
+function saveMigrationInputs(){
+  const values={};
+  MIGRATION_INPUT_IDS.forEach(id=>{
+    const input=document.getElementById(id);
+    if(input)values[id]=input.value;
+  });
+  writeBrowserValue(MIGRATION_INPUT_KEY,values);
+}
+function restoreMigrationInputs(){
+  const values=readBrowserValue(MIGRATION_INPUT_KEY,{})||{};
+  MIGRATION_INPUT_IDS.forEach(id=>{
+    const input=document.getElementById(id);
+    if(input&&Object.prototype.hasOwnProperty.call(values,id))input.value=values[id];
+    if(input){
+      input.addEventListener('input',saveMigrationInputs);
+      input.addEventListener('change',saveMigrationInputs);
+    }
+  });
+}
+function clearMigrationInputs(){
+  removeBrowserValue(MIGRATION_INPUT_KEY);
+  MIGRATION_INPUT_IDS.forEach(id=>{
+    const input=document.getElementById(id);
+    if(input)input.value=id==='semantic-threshold'?'0.90':'';
+  });
+  toast('已清空本浏览器保存的迁移输入');
+}
+function rememberMigrationJob(id){
+  writeBrowserValue(MIGRATION_JOB_KEY,{id,saved_at:new Date().toISOString()});
+}
+function clearMigrationProgress(){
+  MIGRATION_JOB_VIEW+=1;
+  removeBrowserValue(MIGRATION_JOB_KEY);
+  const panel=$('#job-panel');
+  if(panel)panel.innerHTML='<p class="muted">当前进度显示已清空；后台任务和历史记录不受影响。</p>';
+  toast('已清空当前任务进度显示');
+}
+function migrationFlowState(status={}){
+  const counts=status.counts||{}, jobs=status.jobs||[];
+  const isRunning=types=>jobs.some(j=>types.includes(j.type)&&['pending','running'].includes(j.status));
+  const sourceRunning=isRunning(['scan-local','sharepoint','wedrive','wecom-chat']);
+  const processRunning=isRunning(['pipeline','semantic']);
+  const total=Number(status.total||0);
+  const discovered=Number(counts.discovered||0);
+  const waitingProcess=Number(counts.extracted||0)+Number(counts.deduped||0);
+  const sourceComplete=total>0&&discovered===0&&!sourceRunning;
+  const processComplete=sourceComplete&&waitingProcess===0&&!processRunning;
+  return {
+    sources:{
+      enabled:true,complete:sourceComplete,
+      text:sourceRunning?'接入任务执行中':sourceComplete?`已接入 ${total} 条`:discovered?`待抽取 ${discovered} 条`:'等待数据接入'
+    },
+    process:{
+      enabled:sourceComplete,complete:processComplete,
+      text:!sourceComplete?'请先完成数据接入':processRunning?'处理任务执行中':processComplete?'去重与分类已完成':`待处理 ${waitingProcess} 条`
+    },
+    delivery:{
+      enabled:processComplete,complete:false,
+      text:processComplete?'可执行写入与治理':'请先完成去重与分类'
+    }
+  };
+}
+function migrationFlowButton(stage,index,title){
+  const state=MIGRATION_FLOW[stage];
+  return `<button class="migration-tab ${state.complete?'complete':''}" data-stage="${stage}"
+    ${state.enabled?'':`disabled aria-disabled="true" title="${esc(state.text)}"`}
+    onclick="setMigrateStage('${stage}',this)">
+    <span class="flow-number">${state.complete?'✓':index}</span>
+    <span class="flow-copy"><strong>${esc(title)}</strong><small data-flow-status="${stage}">${esc(state.text)}</small></span>
+  </button>`;
+}
+async function renderMigrate(){
+  let status={};
+  try{status=await api('/api/status');}catch(e){toast('迁移阶段状态读取失败：'+e.message);}
+  MIGRATION_FLOW=migrationFlowState(status);
+  if(!MIGRATION_FLOW[MIGRATE_STAGE]?.enabled)MIGRATE_STAGE='sources';
   $('#tab-migrate').innerHTML=`
-  <div class="card"><h3>① 本地文件夹</h3>
-    <div class="row"><div><label>文件夹路径</label><input id="scan-path" placeholder="D:/知识资料 或 \\\\server\\share"></div>
-      <button class="btn" onclick="runJob('/api/jobs/scan-local',{path:$('#scan-path').value})">盘点+抽取</button></div>
+  <div class="migration-flow" role="tablist" aria-label="迁移阶段">
+    ${migrationFlowButton('sources',1,'数据接入')}
+    <span class="flow-arrow ${MIGRATION_FLOW.sources.complete?'complete':''}" aria-hidden="true"></span>
+    ${migrationFlowButton('process',2,'去重与分类')}
+    <span class="flow-arrow ${MIGRATION_FLOW.process.complete?'complete':''}" aria-hidden="true"></span>
+    ${migrationFlowButton('delivery',3,'写入与治理')}
   </div>
-  <div class="card"><h3>② SharePoint</h3>
-    <div class="row"><div><label>站点收窄关键字（可空=全部根站点）</label><input id="sp-site" placeholder="留空=全部；或填站点名关键字"></div>
-      <button class="btn" onclick="runJob('/api/jobs/sharepoint',{site:$('#sp-site').value})">盘点+抽取</button></div>
-    <div class="hint">MS Graph 应用权限 Sites.Read.All + Files.Read.All（需管理员同意）；凭证在「配置」页填。</div>
-  </div>
-  <div class="card"><h3>③ 企业微信微盘</h3>
-    <div class="row"><div><label>微盘空间 ID（逗号分隔）</label><input id="wd-spaces" placeholder="spaceid1,spaceid2"></div>
-      <button class="btn" onclick="runJob('/api/jobs/wedrive',{space_ids:$('#wd-spaces').value})">盘点+抽取</button></div>
-    <div class="hint">仅普通文件可迁；原生微文档无法批量导出（平台限制）。应用须为各空间成员。</div>
-  </div>
-  <div class="card"><h3>④ 企业微信群聊（会话存档）</h3>
-    <div class="row"><div><label>群聊 ID（留空=仅检测就绪性）</label><input id="chat-id" placeholder="wecom_chat_id"></div>
-      <div><label>群名（可选，便于核对）</label><input id="chat-name" placeholder="原群名"></div>
-      <button class="btn" onclick="runJob('/api/jobs/wecom-chat',{chat_id:$('#chat-id').value,name:$('#chat-name').value})">检测/迁移</button></div>
-    <div class="hint">需开通「会话内容存档」+ 部署原生 SDK + 配置 RSA 私钥；就绪且填了群聊 ID 才真正迁移（按天聚合进标准管线，随后跑去重+分类）。未就绪降级为「仅迁群文件」（用微盘迁）。</div>
-  </div>
-  <div class="card"><h3>⑤ 去重 + AI 分类（承接盘点之后）</h3>
-    <div class="row"><button class="btn" onclick="runJob('/api/jobs/pipeline',{})">跑近似去重 + 分类</button></div>
-  </div>
-  <div class="card"><h3>任务进度</h3><div id="job-panel"><p class="muted">触发任务后在此显示实时进度</p></div></div>`;
+  <div class="migration-layout">
+    <div class="migration-main">
+      <div class="migration-grid" data-migrate-stage="sources">
+        <div class="card"><h3>① 本地文件夹</h3>
+          <div><label>文件夹路径</label><input id="scan-path" placeholder="D:/知识资料 或 \\\\server\\share"></div>
+          <p><button class="btn" onclick="runJob('/api/jobs/scan-local',{path:$('#scan-path').value})">盘点并抽取</button></p>
+        </div>
+        <div class="card"><h3>② SharePoint</h3>
+          <div><label>站点收窄关键字</label><input id="sp-site" placeholder="留空=全部；或填站点名关键字"></div>
+          <p><button class="btn" onclick="runJob('/api/jobs/sharepoint',{site:$('#sp-site').value})">盘点并抽取</button></p>
+          <div class="hint">需要 Sites.Read.All、Files.Read.All 管理员同意。</div>
+        </div>
+        <div class="card"><h3>③ 企业微信微盘</h3>
+          <div><label>微盘空间 ID（逗号分隔）</label><input id="wd-spaces" placeholder="spaceid1,spaceid2"></div>
+          <p><button class="btn" onclick="runJob('/api/jobs/wedrive',{space_ids:$('#wd-spaces').value})">盘点并抽取</button></p>
+          <div class="hint">仅普通文件可迁；应用须为对应空间成员。</div>
+        </div>
+        <div class="card"><h3>④ 企业微信群聊</h3>
+          <div><label>群聊 ID（留空仅检测）</label><input id="chat-id" placeholder="wecom_chat_id"></div>
+          <div><label>群名（可选）</label><input id="chat-name" placeholder="原群名"></div>
+          <p><button class="btn" onclick="runJob('/api/jobs/wecom-chat',{chat_id:$('#chat-id').value,name:$('#chat-name').value})">检测或迁移</button></p>
+          <div class="hint">需要会话内容存档、原生 SDK 和 RSA 私钥；未就绪时降级为仅迁群文件。</div>
+        </div>
+      </div>
+
+      <div data-migrate-stage="process" hidden>
+        <div class="card"><h3>⑤ 去重与 AI 分类</h3>
+          <p class="muted">数据接入完成后运行。近似去重与分类是主流程，语义去重可按需补充。</p>
+          <div class="operation-grid">
+            <div class="operation-item"><h4>主处理流程</h4>
+              <p class="muted">近似去重、AI 分类和人工确认分流。</p>
+              <button class="btn" onclick="runJob('/api/jobs/pipeline',{})">运行去重与分类</button>
+            </div>
+            <div class="operation-item"><h4>语义去重</h4>
+              <label>相似度阈值</label>
+              <input id="semantic-threshold" type="number" min="0.5" max="1" step="0.01" value="0.90">
+              <p><button class="btn ghost" onclick="runJob('/api/jobs/semantic',{threshold:Number($('#semantic-threshold').value)})">运行语义去重</button></p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div data-migrate-stage="delivery" hidden>
+        <div class="card"><h3>⑥ 写入、重试与生命周期</h3>
+          <div class="operation-grid">
+            <div class="operation-item"><h4>写入飞书</h4><div class="actions">
+              <button class="btn ghost" onclick="runJob('/api/jobs/load',{dry_run:true})">预览</button>
+              <button class="btn" onclick="confirmJob('/api/jobs/load',{dry_run:false},'将真实上传文件并同步权限，确认继续？')">真实写入</button>
+            </div></div>
+            <div class="operation-item"><h4>失败重试</h4><div class="actions">
+              <button class="btn ghost" onclick="runJob('/api/jobs/retry',{dry_run:true})">预览</button>
+              <button class="btn" onclick="confirmJob('/api/jobs/retry',{dry_run:false},'将真实重试写入失败项，确认继续？')">执行重试</button>
+            </div></div>
+            <div class="operation-item"><h4>Wiki 挂载</h4><div class="actions">
+              <button class="btn ghost" onclick="runJob('/api/jobs/push-to-wiki',{dry_run:true})">预览</button>
+              <button class="btn" onclick="confirmJob('/api/jobs/push-to-wiki',{dry_run:false},'将以 OAuth 用户身份重传并挂入 Wiki，确认继续？')">执行挂载</button>
+            </div></div>
+            <div class="operation-item"><h4>生命周期归档</h4><div class="actions">
+              <button class="btn ghost" onclick="runJob('/api/jobs/archive',{dry_run:true})">预览</button>
+              <button class="btn" onclick="confirmJob('/api/jobs/archive',{dry_run:false},'将把到期条目移入归档目录，确认继续？')">执行归档</button>
+            </div></div>
+          </div>
+          <div class="hint">提交任务时固定当前结构版本；之后编辑新草稿不会改变运行中任务的路由。</div>
+        </div>
+        <div class="card"><h3>⑦ 群聊治理</h3>
+          <div class="grid2"><div><label>群聊 ID</label><input id="govern-chat-id" placeholder="wecom_chat_id"></div>
+            <div><label>飞书入口链接（可选）</label><input id="govern-url" placeholder="https://example.feishu.cn/wiki/..."></div></div>
+          <p class="actions"><button class="btn ghost" onclick="runJob('/api/jobs/govern-chat',{chat_id:$('#govern-chat-id').value,url:$('#govern-url').value,dry_run:true})">预览治理</button>
+            <button class="btn" onclick="confirmJob('/api/jobs/govern-chat',{chat_id:$('#govern-chat-id').value,url:$('#govern-url').value,dry_run:false},'将真实修改飞书协作者并尝试给企业微信群打标，确认继续？')">执行治理</button></p>
+        </div>
+      </div>
+    </div>
+    <aside class="card migration-monitor">
+      <div class="migration-monitor-head"><div><h3>任务进度</h3>
+        <div class="muted">输入与最近任务会自动保存在当前浏览器。</div></div>
+        <div class="monitor-tools">
+          <button class="btn ghost" onclick="clearMigrationInputs()">清空输入</button>
+          <button class="btn ghost" onclick="clearMigrationProgress()">清空进度</button>
+        </div>
+      </div>
+      <div id="job-panel"><p class="muted">触发任一任务后在此持续显示状态、进度和日志。</p></div>
+    </aside>
+  </div>`;
+  restoreMigrationInputs();
+  setMigrateStage(MIGRATE_STAGE);
+  await restoreMigrationJob();
+}
+function setMigrateStage(stage,button){
+  const tab=document.querySelector(`.migration-tab[data-stage="${stage}"]`);
+  if(!tab||tab.disabled){
+    toast(MIGRATION_FLOW?.[stage]?.text||'请先完成上一步');
+    return;
+  }
+  MIGRATE_STAGE=stage;
+  document.querySelectorAll('[data-migrate-stage]').forEach(
+    section=>section.hidden=section.dataset.migrateStage!==stage
+  );
+  document.querySelectorAll('.migration-tab').forEach(
+    tab=>tab.classList.toggle('active',tab.dataset.stage===stage)
+  );
+}
+async function refreshMigrationFlow(){
+  if(!document.querySelector('.migration-flow'))return;
+  try{
+    MIGRATION_FLOW=migrationFlowState(await api('/api/status'));
+    for(const stage of ['sources','process','delivery']){
+      const tab=document.querySelector(`.migration-tab[data-stage="${stage}"]`);
+      if(!tab)continue;
+      const state=MIGRATION_FLOW[stage];
+      tab.disabled=!state.enabled;
+      tab.setAttribute('aria-disabled',String(!state.enabled));
+      tab.classList.toggle('complete',state.complete);
+      tab.querySelector('.flow-number').textContent=state.complete?'✓':({sources:'1',process:'2',delivery:'3'}[stage]);
+      tab.querySelector('[data-flow-status]').textContent=state.text;
+    }
+    document.querySelectorAll('.flow-arrow').forEach((arrow,index)=>
+      arrow.classList.toggle('complete',index===0?MIGRATION_FLOW.sources.complete:MIGRATION_FLOW.process.complete)
+    );
+  }catch(e){toast('迁移阶段状态刷新失败：'+e.message);}
 }
 
 // ── 通用任务运行 + 轮询 ──
 async function runJob(path, body){
   const panel=$('#job-panel');
+  if(!panel)return;
   panel.innerHTML='<p class="muted">启动中…</p>';
   try{
     const {job_id}=await api(path,'POST',body);
+    rememberMigrationJob(job_id);
     pollJob(job_id,panel);
-  }catch(e){panel.innerHTML=`<p>❌ ${esc(e.message)}</p>`;}
+  }catch(e){
+    const health=e.payload&&e.payload.ai_health;
+    panel.innerHTML=`<p>❌ ${esc(e.message)}</p>
+      ${health?`<div class="hint"><b>${esc(health.label)}</b>：${esc(health.message)}</div>`:''}`;
+    if(health)window.alert(`${health.label}：${health.message}`);
+  }
+}
+function confirmJob(path,body,message){
+  if(window.confirm(message))runJob(path,body);
+}
+function renderMigrationJob(j,id,panel){
+  if(!panel||!panel.isConnected)return;
+  const p=j.progress||{done:0,total:0};
+  const pct=p.total?Math.round(p.done/p.total*100):(j.status==='success'?100:0);
+  panel.innerHTML=`<div class="muted">${esc(j.type||'迁移任务')} · ${esc(id)}${j.updated_at?` · ${esc(j.updated_at)}`:''}</div>
+    <p>状态：${statusBadge(j.status)} &nbsp; <span class="muted">${p.total?`${p.done}/${p.total}`:''}</span></p>
+    ${['pending','running'].includes(j.status)?`<p><button class="btn ghost" onclick="cancelJob('${esc(id)}')">取消任务</button></p>`:''}
+    <div class="bar"><i style="width:${pct}%"></i></div>
+    <pre class="log">${esc((j.log||[]).join('\n'))}</pre>`;
+  const log=panel.querySelector('.log');
+  if(log)log.scrollTop=1e9;
+}
+async function restoreMigrationJob(){
+  const saved=readBrowserValue(MIGRATION_JOB_KEY,null);
+  if(!saved?.id)return;
+  const panel=$('#job-panel');
+  if(!panel)return;
+  panel.innerHTML='<p class="muted">正在恢复最近任务进度…</p>';
+  try{
+    const job=await api('/api/jobs/'+encodeURIComponent(saved.id));
+    if(['pending','running'].includes(job.status))pollJob(saved.id,panel);
+    else renderMigrationJob(job,saved.id,panel);
+  }catch(e){
+    if(e.status===404)removeBrowserValue(MIGRATION_JOB_KEY);
+    panel.innerHTML=`<p class="muted">最近任务恢复失败：${esc(e.message)}</p>`;
+  }
 }
 async function pollJob(id, panel){
-  const render=j=>{
-    const p=j.progress, pct=p.total?Math.round(p.done/p.total*100):(j.status==='success'?100:0);
-    panel.innerHTML=`<p>状态：${statusBadge(j.status)} &nbsp; <span class="muted">${p.total?`${p.done}/${p.total}`:''}</span></p>
-      <div class="bar"><i style="width:${pct}%"></i></div>
-      <pre class="log">${esc((j.log||[]).join('\n'))}</pre>`;
-    panel.querySelector('.log').scrollTop=1e9;
-  };
+  const view=++MIGRATION_JOB_VIEW;
   while(true){
-    let j;try{j=await api('/api/jobs/'+id);}catch(e){panel.innerHTML='❌ '+esc(e.message);return;}
-    render(j);
-    if(j.status==='success'||j.status==='error'){toast('任务'+(j.status==='success'?'完成':'失败'));break;}
+    if(view!==MIGRATION_JOB_VIEW||!panel.isConnected)return;
+    let j;try{j=await api('/api/jobs/'+id);}catch(e){
+      if(view!==MIGRATION_JOB_VIEW||!panel.isConnected)return;
+      panel.innerHTML='❌ '+esc(e.message);return;
+    }
+    if(view!==MIGRATION_JOB_VIEW||!panel.isConnected)return;
+    renderMigrationJob(j,id,panel);
+    if(['success','error','cancelled','interrupted'].includes(j.status)){
+      toast('任务状态：'+statusBadge(j.status));
+      await refreshMigrationFlow();
+      break;
+    }
     await new Promise(r=>setTimeout(r,900));
   }
+}
+function runsTable(runs){
+  if(!runs||!runs.length)return '<p class="muted">暂无管线批次</p>';
+  return '<table><tr><th>类型</th><th>状态</th><th>开始时间</th><th>统计/错误</th></tr>'+runs.map(r=>
+    `<tr><td>${esc(r.run_type)}</td><td>${statusBadge(r.status)}</td><td class="muted">${esc(r.started_at)}</td>
+    <td class="muted">${esc(r.error_detail||r.stats_json||'')}</td></tr>`).join('')+'</table>';
+}
+async function cancelJob(id){
+  try{await api('/api/jobs/'+id+'/cancel','POST',{});toast('已请求取消，任务将在安全检查点停止');}
+  catch(e){toast('取消失败：'+e.message);}
 }
 
 // ── 确认队列 ──
 async function renderReview(){
   const el=$('#tab-review'); el.innerHTML='<div class="card">加载中…</div>';
-  const {items,categories}=await api('/api/review');
-  const opts=c=>categories.map(x=>`<option ${x===c?'selected':''}>${esc(x)}</option>`).join('');
-  const rows=items.map(r=>`<tr>
-    <td>${esc(r.name)}<div class="muted">${esc(r.key)}</div></td>
-    <td><span class="pill">${esc(r.category||'')}</span><div class="muted">conf=${r.confidence}</div></td>
-    <td class="muted">${esc(r.note||'')}</td>
-    <td><select id="sel-${esc(r.key)}">${opts(r.category)}</select></td>
-    <td><button class="btn" onclick="doConfirm('${esc(r.key)}')">确认</button>
-        <button class="btn ghost" onclick="doReject('${esc(r.key)}')">判为重复</button></td></tr>`).join('');
-  el.innerHTML=`<div class="card"><h3>人工确认队列（${items.length}）</h3>
-    <table><tr><th>文件</th><th>AI 建议</th><th>备注</th><th>改归类</th><th>操作</th></tr>
-    ${rows||'<tr><td colspan=5 class="muted">队列为空</td></tr>'}</table></div>`;
+  try{
+    const {items,categories}=await api('/api/review');
+    const opts=c=>categories.map(x=>`<option ${x===c?'selected':''}>${esc(x)}</option>`).join('');
+    const rows=items.map(r=>`<tr data-key="${esc(r.key)}">
+      <td>${esc(r.name)}<div class="muted">${esc(r.key)}</div></td>
+      <td><span class="pill">${esc(r.category||'')}</span><div class="muted">conf=${r.confidence}</div></td>
+      <td class="muted">${esc(r.note||'')}</td>
+      <td><select class="review-category">${opts(r.category)}</select></td>
+      <td><button class="btn review-confirm">确认</button>
+          <button class="btn ghost review-reject">判为重复</button></td></tr>`).join('');
+    el.innerHTML=`<div class="card"><h3>人工确认队列（${items.length}）</h3>
+      <table><tr><th>文件</th><th>AI 建议</th><th>备注</th><th>改归类</th><th>操作</th></tr>
+      ${rows||'<tr><td colspan=5 class="muted">队列为空</td></tr>'}</table></div>`;
+    el.querySelectorAll('.review-confirm').forEach(b=>b.addEventListener('click',()=>doConfirm(b.closest('tr'))));
+    el.querySelectorAll('.review-reject').forEach(b=>b.addEventListener('click',()=>doReject(b.closest('tr').dataset.key)));
+  }catch(e){el.innerHTML=`<div class="card">加载失败：${esc(e.message)}</div>`;}
 }
-async function doConfirm(key){
-  const cat=$('#sel-'+CSS.escape(key)).value;
+async function doConfirm(row){
+  const key=row.dataset.key,cat=$('.review-category',row).value;
   try{await api('/api/confirm','POST',{key,category:cat});toast('已确认');renderReview();}catch(e){toast(e.message);}
 }
 async function doReject(key){
   try{await api('/api/reject','POST',{key});toast('已判为重复');renderReview();}catch(e){toast(e.message);}
 }
 
-// ── 目标结构 ──
+// ── 治理与洞察 ──
+async function renderGovernance(){
+  const el=$('#tab-governance'); el.innerHTML='<div class="card">加载中…</div>';
+  try{
+    const [queues,insights,failures]=await Promise.all([
+      api('/api/governance'),api('/api/insights'),api('/api/failures')
+    ]);
+    const labels={review_due:'复审到期',archive_due:'保留期到期',unowned:'无责任人',triage:'待整理'};
+    const queueHtml=Object.entries(queues).map(([name,rows])=>`
+      <details class="queue-section ${rows.length?'has-items':''}" ${rows.length?'open':''}>
+        <summary><span>${labels[name]||esc(name)}</span><span class="queue-count">${rows.length}</span></summary>
+        <div class="governance-scroll"><table><tr><th>文件</th><th>分类</th><th>责任人</th><th>日期/操作</th></tr>
+        ${rows.slice(0,50).map(r=>`<tr><td>${esc(r.name)}<div class="muted">${esc(r.key)}</div></td>
+          <td>${esc(r.category||'')}</td><td>${esc(r.owner||'—')}</td>
+          <td>${esc(r.review_due_at||r.retention_due_at||'')}
+          ${name==='review_due'?` <button class="btn ghost review-done" data-key="${esc(r.key)}">完成复审</button>`:''}</td></tr>`).join('')||
+          '<tr><td colspan=4 class="muted">队列为空</td></tr>'}</table></div>
+      </details>`).join('');
+    const c=insights.calibration;
+    const clusterRows=(insights.triage_clusters||[]).map(x=>`<tr><td>簇 ${x.cluster}</td><td>${x.size}</td>
+      <td>${esc(x.terms.join(' / '))}</td><td>${esc(x.items.map(i=>i.name).join('、'))}</td></tr>`).join('');
+    const failureRows=(failures.items||[]).map(x=>`<tr>
+      <td><input class="failure-select" type="checkbox" data-key="${esc(x.key)}" ${x.retryable?'':'disabled'}></td>
+      <td>${esc(x.name||x.key)}<div class="muted">${esc(x.key)}</div></td>
+      <td>${esc(x.failed_stage||'未知')}</td><td>${x.retryable?'是':'否'}</td><td>${x.retry_count}</td>
+      <td class="muted">${esc(x.error||'')}</td>
+      <td class="failure-action"><button class="btn ghost failure-retry-one" data-key="${esc(x.key)}" ${x.retryable?'':'disabled'}>重试</button></td>
+      </tr>`).join('');
+    const queueTotal=Object.values(queues).reduce((sum,rows)=>sum+rows.length,0);
+    const samplesNeeded=Math.max(0,Number(c.min_samples||0)-Number(c.feedback_samples||0));
+    el.innerHTML=`
+      <div class="card governance-hero">
+        <div class="governance-title"><div><h3>知识治理中心</h3>
+          <div class="muted">集中处理复审、归档、责任人补全、失败重试和分类质量校准。</div></div>
+          <span class="pill">${queueTotal?'有待办':'运行健康'}</span>
+        </div>
+        <div class="governance-metrics">
+          <div class="governance-metric"><div class="num">${queueTotal}</div><div class="lbl">治理待办</div></div>
+          <div class="governance-metric"><div class="num">${(queues.review_due||[]).length}</div><div class="lbl">复审到期</div></div>
+          <div class="governance-metric"><div class="num">${(queues.unowned||[]).length}</div><div class="lbl">缺少责任人</div></div>
+          <div class="governance-metric"><div class="num">${(failures.items||[]).length}</div><div class="lbl">失败条目</div></div>
+        </div>
+      </div>
+      <div class="governance-layout">
+        <div class="card governance-stack">
+          <div class="governance-card-head"><div><h3>治理待办</h3><div class="muted">按问题类型展开处理，长列表可在卡片内滚动。</div></div>
+            <span class="queue-count">${queueTotal}</span></div>
+          ${queueHtml}
+        </div>
+        <div class="governance-stack">
+          <div class="card">
+            <div class="governance-card-head"><div><h3>失败与重试</h3><div class="muted">迁移管线异常概览</div></div>
+              <span class="queue-count">${(failures.items||[]).length}</span></div>
+            <div class="failure-toolbar">
+              <button id="failure-retry-selected" class="btn" disabled>重试所选</button>
+              <span id="failure-selected-count" class="muted">已选 0 条</span>
+              <span class="muted">重试会安全地重新入队，并提示下一步操作。</span>
+            </div>
+            <div class="governance-scroll"><table><tr>
+              <th><input id="failure-select-all" class="failure-select" type="checkbox" title="全选可重试记录"></th>
+              <th>条目</th><th>阶段</th><th>可重试</th><th>次数</th><th>错误</th><th>操作</th></tr>
+              ${failureRows||'<tr><td colspan=7 class="muted">失败队列为空</td></tr>'}</table></div>
+          </div>
+          <div class="card">
+            <div class="governance-card-head"><div><h3>分类校准</h3><div class="muted">基于人工反馈调整自动确认阈值</div></div></div>
+            <div class="calibration-panel">
+              <div class="calibration-values">
+                <div class="calibration-value"><span class="muted">当前阈值</span><b>${c.current_threshold}</b></div>
+                <div class="calibration-value"><span class="muted">建议阈值</span><b>${c.recommended_threshold}</b></div>
+              </div>
+              <div>人工反馈 <b>${c.feedback_samples}</b> 条</div>
+              <div class="bar"><i style="width:${Math.min(100,Number(c.feedback_samples||0)/Math.max(1,Number(c.min_samples||1))*100)}%"></i></div>
+              <p class="muted">${c.auto_applicable?'已满足样本量与精度门槛，可应用建议阈值。':`还需至少 ${samplesNeeded} 条有效反馈，当前保持原阈值。`}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card governance-wide">
+        <div class="governance-card-head"><div><h3>待整理知识簇</h3><div class="muted">发现主题相近但尚未形成稳定目录的内容集合。</div></div>
+          <span class="queue-count">${(insights.triage_clusters||[]).length}</span></div>
+        <div class="governance-scroll"><table><tr><th>簇</th><th>文档数</th><th>主题词</th><th>文档</th></tr>
+          ${clusterRows||'<tr><td colspan=4 class="muted">暂无待整理文档</td></tr>'}</table></div>
+      </div>`;
+    el.querySelectorAll('.review-done').forEach(b=>b.addEventListener('click',()=>completeReview(b.dataset.key)));
+    el.querySelectorAll('.failure-select[data-key]').forEach(box=>
+      box.addEventListener('change',updateFailureSelection)
+    );
+    const selectAll=$('#failure-select-all',el);
+    if(selectAll)selectAll.addEventListener('change',()=>{
+      el.querySelectorAll('.failure-select[data-key]:not(:disabled)').forEach(box=>box.checked=selectAll.checked);
+      updateFailureSelection();
+    });
+    el.querySelectorAll('.failure-retry-one').forEach(button=>
+      button.addEventListener('click',()=>retryFailures([button.dataset.key]))
+    );
+    const retrySelected=$('#failure-retry-selected',el);
+    if(retrySelected)retrySelected.addEventListener('click',()=>{
+      const keys=[...el.querySelectorAll('.failure-select[data-key]:checked')].map(box=>box.dataset.key);
+      retryFailures(keys);
+    });
+  }catch(e){el.innerHTML=`<div class="card">加载失败：${esc(e.message)}</div>`;}
+}
+function updateFailureSelection(){
+  const el=$('#tab-governance');
+  const boxes=[...el.querySelectorAll('.failure-select[data-key]:not(:disabled)')];
+  const selected=boxes.filter(box=>box.checked);
+  const button=$('#failure-retry-selected',el),count=$('#failure-selected-count',el);
+  if(button)button.disabled=!selected.length;
+  if(count)count.textContent=`已选 ${selected.length} 条`;
+  const all=$('#failure-select-all',el);
+  if(all){
+    all.checked=!!boxes.length&&selected.length===boxes.length;
+    all.indeterminate=selected.length>0&&selected.length<boxes.length;
+  }
+}
+async function retryFailures(keys){
+  keys=(keys||[]).filter(Boolean);
+  if(!keys.length){toast('请先勾选失败记录');return;}
+  if(!window.confirm(`确认重试所选 ${keys.length} 条失败记录？`))return;
+  try{
+    const result=await api('/api/failures/retry','POST',{keys});
+    const next=(result.next_actions||[]).join('；');
+    toast(`已重新入队 ${result.requeued_count} 条${result.skipped_count?`，跳过 ${result.skipped_count} 条`:''}`);
+    if(next)window.alert(`失败记录已重新入队。\n下一步：${next}`);
+    await renderGovernance();
+  }catch(e){
+    const health=e.payload&&e.payload.ai_health;
+    window.alert(health?`${health.label}：${health.message}`:`重试失败：${e.message}`);
+  }
+}
+async function completeReview(key){
+  try{const r=await api('/api/governance/review-complete','POST',{key});toast('下次复审：'+r.next_review_due_at);renderGovernance();}
+  catch(e){toast('操作失败：'+e.message);}
+}
+
+// ── 结构工作台 ──
+let STRUCTURE={draft:null,active:null,snapshot:null,plan:null,relocation:null,
+  versions:[],remoteSearch:'',plannedCollapsed:new Set(),remoteCollapsed:new Set(),
+  planStale:false,dirty:false,dragNode:'',selected:[]};
+
 async function renderTargets(){
-  const el=$('#tab-targets'); el.innerHTML='<div class="card">加载中…</div>';
-  const {summary}=await api('/api/targets');
+  const el=$('#tab-targets'); el.innerHTML='<div class="card">正在加载目录结构工作台…</div>';
+  try{
+    const draft=(await api('/api/structures/drafts','POST',{})).structure;
+    const active=(await api('/api/structures/active')).structure;
+    const remote=await api('/api/remote-structures/latest?mode='+encodeURIComponent(draft.mode));
+    const latestPlan=await api('/api/structures/'+draft.id+'/plans/latest');
+    const versions=(await api('/api/structures?limit=100')).versions||[];
+    let relocation=null;
+    if(active){
+      relocation=(await api('/api/structures/'+active.id+'/relocation-plans/latest')).plan;
+    }
+    const planStale=!!(latestPlan.plan&&remote.snapshot&&
+      latestPlan.plan.remote_snapshot_id!==remote.snapshot.id&&
+      ['preview','approved'].includes(latestPlan.plan.status));
+    const plannedParents=new Set(
+      draft.nodes.map(node=>node.parent_node_id).filter(Boolean)
+    );
+    STRUCTURE={draft,active,snapshot:remote.snapshot,
+      plan:planStale?null:latestPlan.plan,relocation,
+      versions,remoteSearch:'',plannedCollapsed:plannedParents,
+      remoteCollapsed:new Set(),planStale,
+      dirty:false,dragNode:'',selected:[]};
+    drawStructureWorkbench();
+  }catch(e){el.innerHTML=`<div class="card">加载失败：${esc(e.message)}</div>`;}
+}
+
+function drawStructureWorkbench(){
+  const el=$('#tab-targets'),d=STRUCTURE.draft,s=STRUCTURE.snapshot,p=STRUCTURE.plan;
+  if(!d){el.innerHTML='<div class="card">没有可编辑的结构草稿</div>';return;}
+  const editable=d.status==='draft';
+  const actionSummary=p?Object.entries(p.summary.counts||{}).map(([k,v])=>`${k} ${v}`).join(' · '):'尚未生成差异';
   el.innerHTML=`
-  <div class="card"><h3>阶段1 · 建目标结构</h3>
-    <p><button class="btn" onclick="runTargetJob('/api/jobs/bootstrap',{mode:'drive'})">建云空间文件夹树（仅需应用凭证）</button>
-       <button class="btn ghost" onclick="runTargetJob('/api/jobs/bootstrap',{mode:'wiki'})">建 Wiki 知识空间（需 OAuth）</button></p>
-    <pre class="log" style="max-height:200px">${esc(summary)}</pre>
-  </div>
-  <div class="card"><h3>写入飞书</h3>
-    <p><button class="btn ghost" onclick="runTargetJob('/api/jobs/load',{dry_run:true})">试运行(dry-run)</button>
-       <button class="btn" onclick="runTargetJob('/api/jobs/load',{dry_run:false})">真实写入</button></p>
-    <div id="job-panel2"><p class="muted">触发后显示进度</p></div>
+  <div class="card">
+    <div class="structure-toolbar">
+      <h3 style="margin:0">目录结构工作台</h3>
+      <span class="status-chip ${esc(d.status)}">${esc(d.status)} · r${d.revision}</span>
+      <span class="dirty-mark" style="${STRUCTURE.dirty?'':'display:none'}">● 有未保存修改</span>
+      <span class="spacer"></span>
+      ${editable?`<button class="btn ghost" onclick="generateStructureSuggestions()">生成建议</button>
+        <button class="btn ghost" onclick="addStructureNode('')">＋ 根目录</button>
+        <button class="btn ghost" onclick="mergeSelectedNodes()">合并选中</button>
+        <button class="btn ghost" onclick="openSplitSelected()">拆分选中</button>
+        <button class="btn ghost" onclick="saveStructureDraft()">保存草稿</button>
+        <button class="btn ghost" onclick="validateStructure()">校验</button>
+        <button class="btn ghost" onclick="checkStructureHealth()">健康检查</button>
+        <button class="btn ghost" onclick="refreshRemoteStructure()">刷新飞书现状</button>
+        <button class="btn ghost" onclick="previewStructureDiff()">生成差异</button>
+        <button class="btn" onclick="approveStructure()">最终确认</button>`:
+        `${d.status==='reviewing'?`
+          <span class="muted">审批 ${d.approval_count||0}/${d.required_approvals||1}</span>
+          <button class="btn ghost" onclick="checkStructureHealth()">健康检查</button>
+          <button class="btn" onclick="approveStructure()">继续审批</button>`:
+        `${['approved','failed'].includes(d.status)?`
+          <button class="btn ghost" onclick="checkStructureHealth()">健康检查</button>
+          ${p&&p.status==='preview'?`
+            <button class="btn" onclick="approveStructurePlan()">审批发布计划</button>`:''}
+          ${p&&['approved','failed'].includes(p.status)?`
+            <button class="btn ghost" onclick="runStructureApply(true)">预览发布</button>
+            <button class="btn" onclick="runStructureApply(false)">执行并激活</button>`:''}`:''}
+         <button class="btn ghost" onclick="createNextStructureDraft()">新建调整草稿</button>`}`}
+    </div>
+    <div class="hint">左侧是本地规划草稿；右侧是飞书只读快照。保存草稿和最终确认均不会直接移动、覆盖或删除飞书内容。</div>
+    <div class="structure-toolbar" style="margin-top:10px">
+      <label style="margin:0">版本历史
+        <select id="structure-version-select" style="width:auto;min-width:260px">
+          ${(STRUCTURE.versions||[]).map(v=>`<option value="${esc(v.id)}" ${v.id===d.id?'disabled':''}>
+            ${esc(v.name)} · ${esc(v.status)} · r${v.revision} · ${v.node_count} 节点
+          </option>`).join('')}
+        </select>
+      </label>
+      ${editable?`<button class="btn ghost" onclick="restoreSelectedStructureVersion()">恢复到当前草稿</button>`:''}
+      <button class="btn ghost" onclick="showStructureAudit()">查看审计</button>
+      <span class="muted">恢复只复制历史版本，不会修改飞书。</span>
+    </div>
+    <div class="structure-board" style="margin-top:12px">
+      <section class="structure-pane">
+        <h4>规划目录（可编辑） <span class="muted">${d.nodes.length} 个节点</span>
+          <button class="tree-mini" onclick="expandAllPlannedNodes()">全部展开</button>
+          <button class="tree-mini" onclick="collapseAllPlannedNodes()">全部收起</button>
+        </h4>
+        <div class="structure-pane-body" id="planned-tree" ondragover="event.preventDefault()" ondrop="dropStructureNode(event,'')">
+          ${plannedTreeHtml(d.nodes,editable)}
+        </div>
+      </section>
+      <section class="structure-pane">
+        <h4>差异与调整 <span class="muted">${esc(actionSummary)}</span></h4>
+        <div class="structure-pane-body">
+          ${p?actionListHtml(p.actions):'<p class="muted">保存草稿并刷新飞书现状后，点击“生成差异”。</p>'}
+        </div>
+      </section>
+      <section class="structure-pane">
+        <h4>飞书现有目录（只读） <span class="muted">${s?s.node_count+' 个节点':'未刷新'}</span></h4>
+        <input value="${esc(STRUCTURE.remoteSearch||'')}" placeholder="输入后回车搜索目录、token 或管理状态"
+          onchange="STRUCTURE.remoteSearch=this.value;drawStructureWorkbench()">
+        ${s?`<div class="remote-tree-tools">
+          <button class="tree-mini" onclick="expandAllRemoteNodes()">全部展开</button>
+          <button class="tree-mini" onclick="collapseAllRemoteNodes()">全部收起</button>
+          <span class="muted">搜索时自动展开命中路径</span>
+        </div>`:''}
+        <div class="structure-pane-body">
+          ${s?remoteTreeHtml(s.nodes,STRUCTURE.remoteSearch):'<p class="muted">尚无远程快照。点击“刷新飞书现状”读取真实目录。</p>'}
+        </div>
+      </section>
+    </div>
+    <div id="structure-validation" class="validation-box">
+      ${STRUCTURE.planStale?'飞书现状已刷新，原差异计划已过期，请重新生成差异。 ':''}
+      ${p?`影响文件 ${p.summary.affected_items||0} 项；远程内容 ${p.summary.remote_content_nodes||0} 项；
+        阻断冲突 ${p.summary.blocking_conflicts||0} 项；治理策略提醒 ${p.summary.policy_warnings||0} 项。`:esc(actionSummary)}
+      ${p&&p.summary.scope_items?` 范围统计：未迁移 ${p.summary.scope_items.unmigrated||0}、
+        可重试 ${p.summary.scope_items.retryable||0}、历史已迁移 ${p.summary.scope_items.historical||0}。`:''}
+      ${s?` 远程快照：${esc(s.created_at)}`:''}
+    </div>
+    ${p?`<div class="validation-box">
+      发布计划：<span class="status-chip ${esc(p.status)}">${esc(p.status)} · r${p.revision||1}</span>
+      <label style="display:inline-block;margin-left:12px">历史内容范围：
+        <select style="width:auto" onchange="updateStructurePlanScope(this.value)"
+          ${p.status==='preview'?'':'disabled'}>
+          <option value="unmigrated_only" ${p.history_scope==='unmigrated_only'?'selected':''}>仅未迁移文件（默认）</option>
+          <option value="include_retries" ${p.history_scope==='include_retries'?'selected':''}>包含失败与重试文件</option>
+          <option value="relocate_history" ${p.history_scope==='relocate_history'?'selected':''}>允许调整历史内容</option>
+        </select>
+      </label>
+      ${p.status==='preview'?`<button class="tree-mini" onclick="cancelStructurePlan()">取消计划</button>`:''}
+    </div>`:''}
+    ${relocationPlanHtml()}
+    <div id="structure-job-panel"></div>
+    <dialog id="node-policy-dialog">
+      <h3>目录治理属性</h3>
+      <input id="policy-node-id" type="hidden">
+      <label>Owner</label><input id="policy-owner" placeholder="责任人">
+      <label>Steward</label><input id="policy-steward" placeholder="维护人">
+      <div class="grid2">
+        <div><label>复审周期（月）</label><input id="policy-review" type="number" min="1" max="120"></div>
+        <div><label>保留期（年）</label><input id="policy-retention" type="number" min="1" max="100"></div>
+      </div>
+      <hr>
+      <h4>自动路由规则（仅作为拆分子目录时生效）</h4>
+      <label><input id="policy-rule-fallback" type="checkbox" style="width:auto"> 作为兜底目录</label>
+      <div class="grid2">
+        <div><label>字段</label><select id="policy-rule-field">
+          <option value="">不启用</option><option value="original_name">文件名</option>
+          <option value="source_path">来源路径</option><option value="doc_type">文档类型</option>
+          <option value="year">年份</option><option value="metadata.department">元数据：部门</option>
+        </select></div>
+        <div><label>操作符</label><select id="policy-rule-operator">
+          <option value="contains">包含</option><option value="equals">等于</option>
+          <option value="prefix">前缀</option><option value="regex">正则</option>
+          <option value="in">属于列表</option>
+        </select></div>
+        <div><label>匹配值</label><input id="policy-rule-value" placeholder="多个值用逗号分隔"></div>
+        <div><label>优先级</label><input id="policy-rule-priority" type="number" min="1" value="100"></div>
+      </div>
+      <p id="policy-aliases" class="muted"></p>
+      <p class="actions"><button class="btn" onclick="saveNodePolicy();return false">保存属性</button>
+        <button class="btn ghost" onclick="$('#node-policy-dialog').close();return false">取消</button></p>
+    </dialog>
+    <dialog id="split-rule-dialog" style="width:min(920px,calc(100vw - 28px))">
+      <h3>按规则拆分目录</h3>
+      <input id="split-source-id" type="hidden">
+      <p class="muted">规则按优先级依次匹配。建议保留一个兜底目录；历史已迁移文件只生成影响预览，不会自动搬动。</p>
+      <div id="split-rule-rows"></div>
+      <p class="actions"><button class="btn ghost" onclick="addSplitRuleRow();return false">＋ 添加目标</button>
+        <button class="btn" onclick="submitSplitRules();return false">保存拆分</button>
+        <button class="btn ghost" onclick="$('#split-rule-dialog').close();return false">取消</button></p>
+    </dialog>
   </div>`;
+}
+
+function plannedTreeHtml(nodes,editable){
+  const groups={};nodes.forEach(n=>(groups[n.parent_node_id||'']=groups[n.parent_node_id||'']||[]).push(n));
+  Object.values(groups).forEach(a=>a.sort((x,y)=>(x.sort_order-y.sort_order)||x.display_name.localeCompare(y.display_name)));
+  const seen=new Set();
+  const walk=(parent,depth)=>((groups[parent]||[]).map(n=>{
+    if(seen.has(n.node_id))return '';seen.add(n.node_id);
+    const locked=['triage','archive'].includes(n.node_kind);
+    const children=groups[n.node_id]||[];
+    const collapsed=STRUCTURE.plannedCollapsed.has(n.node_id);
+    return `<div class="tree-row" style="padding-left:${6+depth*18}px" data-node="${esc(n.node_id)}"
+      draggable="${editable}" ondragstart="startStructureDrag(event,'${n.node_id}')"
+      ondragover="event.preventDefault();this.classList.add('drag-over')"
+      ondragleave="this.classList.remove('drag-over')" ondrop="dropStructureNode(event,'${n.node_id}')">
+      <span class="tree-grip">⠿</span>
+      ${children.length?`<button class="tree-mini remote-toggle" title="${collapsed?'展开二级目录':'收起子目录'}"
+        aria-label="${collapsed?'展开':'收起'} ${esc(n.display_name)}"
+        onclick="togglePlannedNode('${n.node_id}')">${collapsed?'▸':'▾'}</button>`:
+        `<span class="remote-toggle">${depth?'└':'▣'}</span>`}
+      <input class="tree-select" type="checkbox" ${STRUCTURE.selected.includes(n.node_id)?'checked':''}
+        onchange="toggleStructureSelection('${n.node_id}',this.checked)" aria-label="选择 ${esc(n.display_name)}">
+      <input value="${esc(n.display_name)}" ${editable?'':'disabled'}
+        oninput="editStructureName('${n.node_id}',this.value)">
+      <span class="tree-meta">${n.item_count||0} 文件${n.binding?' · 已绑定':''}${Object.keys(n.assignment_rule||{}).length?' · 规则':''}</span>
+      ${editable?`<span class="tree-actions"><button class="tree-mini" title="新增子目录" onclick="addStructureNode('${n.node_id}')">＋</button>
+        <button class="tree-mini" title="治理属性" onclick="openNodePolicy('${n.node_id}')">⚙</button>
+        <button class="tree-mini" title="上移" onclick="moveStructureOrder('${n.node_id}',-1)">↑</button>
+        <button class="tree-mini" title="下移" onclick="moveStructureOrder('${n.node_id}',1)">↓</button>
+        ${locked?'':`<button class="tree-mini" title="删除" onclick="removeStructureNode('${n.node_id}')">×</button>`}</span>`:''}
+      </div>${collapsed?'':walk(n.node_id,depth+1)}`;
+  }).join(''));
+  const html=walk('',0);
+  return html||'<p class="muted">规划目录为空</p>';
+}
+
+function togglePlannedNode(nodeId){
+  if(STRUCTURE.plannedCollapsed.has(nodeId))STRUCTURE.plannedCollapsed.delete(nodeId);
+  else STRUCTURE.plannedCollapsed.add(nodeId);
+  drawStructureWorkbench();
+}
+function expandAllPlannedNodes(){
+  STRUCTURE.plannedCollapsed.clear();drawStructureWorkbench();
+}
+function collapseAllPlannedNodes(){
+  const parents=new Set(
+    STRUCTURE.draft.nodes.map(node=>node.parent_node_id).filter(Boolean)
+  );
+  STRUCTURE.plannedCollapsed=parents;drawStructureWorkbench();
+}
+
+function remoteTreeHtml(nodes,query=''){
+  const groups={};nodes.forEach(n=>(groups[n.parent_token||'']=groups[n.parent_token||'']||[]).push(n));
+  const all=new Set(nodes.map(n=>n.remote_token));
+  const roots=nodes.filter(n=>!n.parent_token||!all.has(n.parent_token));
+  const q=(query||'').trim().toLocaleLowerCase(),include=new Set();
+  if(q){
+    const byToken=Object.fromEntries(nodes.map(n=>[n.remote_token,n]));
+    nodes.forEach(n=>{
+      const decision=(n.decision||{}).decision||'';
+      if(`${n.display_name} ${n.remote_token} ${n.node_type} ${decision}`.toLocaleLowerCase().includes(q)){
+        let current=n;
+        while(current&&!include.has(current.remote_token)){
+          include.add(current.remote_token);current=byToken[current.parent_token];
+        }
+      }
+    });
+  }
+  const seen=new Set();
+  const walk=(items,depth)=>items.map(n=>{
+    if(seen.has(n.remote_token))return '';seen.add(n.remote_token);
+    const children=groups[n.remote_token]||[];
+    if(q&&!include.has(n.remote_token))return '';
+    const collapsed=!q&&STRUCTURE.remoteCollapsed.has(n.remote_token);
+    const childHtml=collapsed?'':walk(children,depth+1);
+    const decision=(n.decision||{}).decision||'未处置';
+    const decisionLabels={managed:'已管理',mapped:'已映射',adopted:'已采纳',
+      external:'外部管理',merge_pending:'待合并',archive_pending:'待归档'};
+    const editable=STRUCTURE.draft&&STRUCTURE.draft.status==='draft';
+    const icon=n.node_type==='folder'?'📁':(n.has_children?'📂':'📄');
+    return `<div class="remote-row" style="padding-left:${8+depth*18}px">
+      <div class="remote-node-line">
+        ${children.length?`<button class="tree-mini remote-toggle"
+          title="${collapsed?'展开':'收起'}"
+          aria-label="${collapsed?'展开':'收起'} ${esc(n.display_name)}"
+          onclick="toggleRemoteNode('${n.remote_token}')">${collapsed?'▸':'▾'}</button>`:
+          '<span class="remote-toggle"></span>'}
+        ${icon} <b>${esc(n.display_name)}</b>
+        <span class="status-chip">${esc(decisionLabels[decision]||decision)}</span></div>
+      <div class="muted" style="margin-left:25px">${esc(n.node_type||'folder')} · 直属文件/子项 ${Number(n.file_count)||0}
+        ${n.remote_updated_at?' · 更新 '+esc(n.remote_updated_at):''}</div>
+      <div class="muted" style="margin-left:25px">${esc(n.remote_token)}</div>
+      ${editable&&decision==='未处置'?`<div class="actions" style="margin:4px 0 4px 25px">
+        <button class="tree-mini" onclick="adoptRemoteNode('${n.remote_token}')">采纳</button>
+        <button class="tree-mini" onclick="mapRemoteNode('${n.remote_token}')">映射到左侧选中</button>
+        <button class="tree-mini" onclick="markRemoteNode('${n.remote_token}','external')">外部管理</button>
+        <button class="tree-mini" onclick="markRemoteNode('${n.remote_token}','merge_pending')">待合并</button>
+        <button class="tree-mini" onclick="markRemoteNode('${n.remote_token}','archive_pending')">待归档</button>
+      </div>`:''}</div>${childHtml}`;
+  }).join('');
+  return walk(roots,0)||'<p class="muted">快照中没有匹配的目录节点</p>';
+}
+
+function toggleRemoteNode(remoteToken){
+  if(STRUCTURE.remoteCollapsed.has(remoteToken))STRUCTURE.remoteCollapsed.delete(remoteToken);
+  else STRUCTURE.remoteCollapsed.add(remoteToken);
+  drawStructureWorkbench();
+}
+
+function expandAllRemoteNodes(){
+  STRUCTURE.remoteCollapsed.clear();
+  drawStructureWorkbench();
+}
+
+function collapseAllRemoteNodes(){
+  const nodes=(STRUCTURE.snapshot&&STRUCTURE.snapshot.nodes)||[];
+  const parents=new Set(nodes.map(n=>n.parent_token).filter(Boolean));
+  STRUCTURE.remoteCollapsed=new Set(
+    nodes.filter(n=>parents.has(n.remote_token)).map(n=>n.remote_token)
+  );
+  drawStructureWorkbench();
+}
+
+function actionListHtml(actions){
+  if(!actions.length)return '<p class="muted">规划与飞书现状一致。</p>';
+  const labels={CREATE:'新建',MAP:'映射已有',RENAME:'安全重命名',MOVE:'移动',
+    MERGE:'合并内容',RETIRE:'退役旧目录',NOOP:'一致',
+    SPLIT_RULE:'规则拆分',CONFLICT:'冲突',REMOTE_ONLY:'仅飞书存在'};
+  const permissions={no_change:'无变化',
+    requires_remote_preflight:'执行前检查远程权限'};
+  return actions.map(a=>{
+    const removableContentNode=a.action_type==='CONFLICT'&&
+      (a.before||{}).reason==='当前绑定指向普通内容文件，且未找到唯一同名结构节点'&&
+      STRUCTURE.draft&&STRUCTURE.draft.status==='draft';
+    return `<div class="action-row ${esc(a.action_type)}">
+    <b>#${a.action_order??'-'} ${labels[a.action_type]||esc(a.action_type)}</b> · ${esc(a.display_name)}
+    <span class="status-chip ${esc(a.status||'pending')}">${esc(a.status||'pending')}</span>
+    ${(a.before&&a.before.path)?`<div class="muted">原：${esc(a.before.path)}</div>`:''}
+    ${(a.after&&a.after.path)?`<div class="muted">新：${esc(a.after.path)}</div>`:''}
+    ${(a.before&&a.before.reason)?`<div style="color:var(--err)">原因：${esc(a.before.reason)}</div>`:''}
+    ${a.item_count?`<div class="muted">影响 ${a.item_count} 份文件</div>`:''}
+    ${(a.depends_on||[]).length?`<div class="muted">依赖动作：${a.depends_on.join('、')}</div>`:''}
+    <div class="muted">权限：${esc(permissions[(a.after||{}).permission_impact]||(a.after&&a.after.permission_impact)||'无变化')}
+      · ${a.action_type==='NOOP'?'无需回滚':(a.rollbackable?'可回滚':'不可自动回滚')}</div>
+    ${removableContentNode?`<button class="tree-mini" onclick="removeInvalidContentNode('${a.node_id}')">从规划目录移除</button>`:''}
+    ${a.remote_token?`<div class="muted">${esc(a.remote_token)}</div>`:''}</div>`;
+  }).join('');
+}
+
+function removeInvalidContentNode(nodeId){
+  const node=STRUCTURE.draft.nodes.find(item=>item.node_id===nodeId);
+  if(!node)return;
+  if(!confirm(`“${node.display_name}”是内容文件，不是目录。仅从本地规划草稿移除，不删除飞书文件，继续？`))return;
+  removeStructureNode(nodeId);
+  STRUCTURE.plan=null;STRUCTURE.planStale=false;
+  toast('已从规划草稿移除；请保存草稿并重新生成差异');
+}
+
+async function reloadRemoteSnapshot(){
+  const r=await api('/api/remote-structures/latest?mode='+encodeURIComponent(STRUCTURE.draft.mode));
+  STRUCTURE.snapshot=r.snapshot;
+}
+
+async function mapRemoteNode(remoteToken){
+  if(STRUCTURE.dirty){toast('请先保存左侧草稿');return;}
+  const selected=(STRUCTURE.selected||[]).filter(id=>STRUCTURE.draft.nodes.some(n=>n.node_id===id));
+  if(selected.length!==1){toast('请先在左侧只勾选一个规划目录');return;}
+  const actor=prompt('操作人标识（可选）','');if(actor===null)return;
+  try{
+    const r=await api('/api/structures/drafts/'+STRUCTURE.draft.id+'/map-remote','POST',{
+      revision:STRUCTURE.draft.revision,node_id:selected[0],remote_token:remoteToken,actor
+    });
+    STRUCTURE.draft=r.structure;STRUCTURE.selected=[];STRUCTURE.plan=null;STRUCTURE.planStale=false;
+    await reloadRemoteSnapshot();toast(r.message);drawStructureWorkbench();
+  }catch(e){toast('映射失败：'+e.message);}
+}
+
+async function adoptRemoteNode(remoteToken){
+  if(STRUCTURE.dirty){toast('请先保存左侧草稿');return;}
+  const selected=(STRUCTURE.selected||[]).filter(id=>STRUCTURE.draft.nodes.some(n=>n.node_id===id));
+  if(selected.length>1){toast('采纳前最多选择一个左侧目录作为父目录');return;}
+  const actor=prompt('操作人标识（可选）','');if(actor===null)return;
+  try{
+    const r=await api('/api/structures/drafts/'+STRUCTURE.draft.id+'/adopt-remote','POST',{
+      revision:STRUCTURE.draft.revision,remote_token:remoteToken,
+      parent_node_id:selected[0]||'',actor
+    });
+    STRUCTURE.draft=r.structure;STRUCTURE.selected=[];STRUCTURE.plan=null;STRUCTURE.planStale=false;
+    await reloadRemoteSnapshot();toast(r.message);drawStructureWorkbench();
+  }catch(e){toast('采纳失败：'+e.message);}
+}
+
+async function markRemoteNode(remoteToken,decision){
+  const labels={external:'外部管理',merge_pending:'待合并',archive_pending:'待归档'};
+  const note=prompt(`标记为“${labels[decision]||decision}”的说明（可选）`,'');
+  if(note===null)return;
+  try{
+    await api('/api/remote-structures/decisions','POST',{
+      mode:STRUCTURE.draft.mode,remote_token:remoteToken,decision,note
+    });
+    await reloadRemoteSnapshot();toast('远端目录处置状态已保存');drawStructureWorkbench();
+  }catch(e){toast('保存处置状态失败：'+e.message);}
+}
+
+async function restoreSelectedStructureVersion(){
+  if(STRUCTURE.dirty&&!confirm('当前未保存修改将被历史版本替换，确认继续？'))return;
+  const select=$('#structure-version-select'),sourceId=select&&select.value;
+  if(!sourceId||sourceId===STRUCTURE.draft.id){toast('请选择一个历史版本');return;}
+  const source=(STRUCTURE.versions||[]).find(v=>v.id===sourceId);
+  if(!confirm(`将“${source?source.name:sourceId}”复制到当前草稿。该操作不会修改飞书，确认继续？`))return;
+  const actor=prompt('操作人标识（可选）','');if(actor===null)return;
+  try{
+    const r=await api('/api/structures/'+sourceId+'/restore','POST',{
+      target_draft_id:STRUCTURE.draft.id,revision:STRUCTURE.draft.revision,actor
+    });
+    STRUCTURE.draft=r.structure;STRUCTURE.plan=null;STRUCTURE.planStale=false;STRUCTURE.dirty=false;
+    STRUCTURE.versions=(await api('/api/structures?limit=100')).versions||[];
+    toast(r.message);drawStructureWorkbench();
+  }catch(e){toast('恢复失败：'+e.message);}
+}
+
+async function showStructureAudit(){
+  try{
+    const audit=await api('/api/structures/'+STRUCTURE.draft.id+'/audit');
+    const events=(audit.events||[]).slice(-10).reverse();
+    const box=$('#structure-validation');
+    box.className='validation-box';
+    box.innerHTML=`<b>最近审计记录</b>${events.map(e=>`<div>
+      ${esc(e.created_at)} · ${esc(e.event_type)} · ${esc(e.actor||'system')}
+    </div>`).join('')||'<div class="muted">暂无审计记录</div>'}`;
+  }catch(e){toast('加载审计失败：'+e.message);}
+}
+
+function relocationPlanHtml(){
+  const active=STRUCTURE.active,p=STRUCTURE.relocation;
+  if(!active)return `<div id="relocation-panel" class="relocation-panel"><b>历史文件重定位</b>
+    <p class="muted">目录结构激活后，可为改名、移动、合并和拆分生成独立的历史文件重定位计划。</p></div>`;
+  if(!p)return `<div id="relocation-panel" class="relocation-panel"><div class="actions"><b>历史文件重定位</b>
+    <button class="btn ghost" onclick="createRelocationPlan()">生成候选计划</button></div>
+    <p class="muted">扫描台账中的历史绑定并生成本地候选，不会移动飞书文件。</p></div>`;
+  const nodes=new Map(active.nodes.map(n=>[n.node_id,n.display_name]));
+  const summary=p.summary||{};
+  const editable=p.status==='draft';
+  const rollbackable=(p.actions||[]).some(a=>
+    ['completed','rollback_failed'].includes(a.status)&&a.detail&&a.detail.remote_moved);
+  const rows=(p.actions||[]).map(a=>`<div class="relocation-row">
+    <input type="checkbox" data-key="${esc(a.stable_key)}" ${a.selected?'checked':''} ${editable?'':'disabled'}
+      onchange="toggleRelocationSelection(this.dataset.key,this.checked)">
+    <span><b>${esc(a.display_name)}</b><br><span class="muted">${esc(a.stable_key)}</span></span>
+    <span class="relocation-route">${esc(nodes.get(a.source_node_id)||'原目录')} → ${esc(nodes.get(a.target_node_id)||a.detail.rule_target||'目标目录')}</span>
+    <span class="status-chip ${esc(a.status)}">${esc(a.status)}</span>
+  </div>`).join('');
+  return `<div id="relocation-panel" class="relocation-panel">
+    <div class="actions"><b>历史文件重定位</b>
+      <span class="status-chip ${esc(p.status)}">${esc(p.status)} · r${p.revision}</span>
+      <span class="muted">候选 ${summary.total||0} · 已选 ${summary.selected||0} · 冲突 ${summary.conflicts||0} · 完成 ${summary.completed||0}</span>
+      ${editable?`<button class="btn ghost" onclick="saveRelocationSelection()">保存选择</button>
+        <button class="btn ghost" onclick="runRelocationJob(true,false)">远程冲突预检</button>
+        <button class="btn" onclick="approveRelocationPlan()">审批计划</button>`:''}
+      ${['approved','ready','failed'].includes(p.status)?`
+        <button class="btn ghost" onclick="runRelocationJob(true,false)">重新预检</button>
+        <button class="btn" onclick="runRelocationJob(false,false)">执行重定位</button>`:''}
+      ${['completed','failed'].includes(p.status)&&rollbackable?`
+        <button class="btn ghost" onclick="runRelocationJob(false,true)">回滚本计划</button>`:''}
+      <button class="btn ghost" onclick="createRelocationPlan()">重新生成</button>
+    </div>
+    <p class="muted">覆盖改名、移动、合并和拆分；审批和预检均不移动文件。执行前检查同名、近似内容和权限扩大风险。回滚仅处理本计划实际移动且可定位原目录的条目。</p>
+    <div class="relocation-list">${rows||'<p class="muted">当前没有需要搬迁的历史文件。</p>'}</div>
+    <div id="relocation-job-panel"></div>
+  </div>`;
+}
+async function createRelocationPlan(){
+  if(!STRUCTURE.active){toast('尚无已激活结构版本');return;}
+  const actor=prompt('计划创建人（可选）','')||'';
+  try{
+    const r=await api('/api/structures/'+STRUCTURE.active.id+'/relocation-plans','POST',{actor});
+    STRUCTURE.relocation=r.plan;toast(r.message);drawStructureWorkbench();
+  }catch(e){toast('生成重定位计划失败：'+e.message);}
+}
+function toggleRelocationSelection(key,checked){
+  const a=(STRUCTURE.relocation.actions||[]).find(x=>x.stable_key===key);
+  if(a)a.selected=checked;
+}
+async function saveRelocationSelection(){
+  const p=STRUCTURE.relocation;
+  try{
+    const r=await api('/api/relocation-plans/'+p.id,'PUT',{
+      revision:p.revision,stable_keys:p.actions.filter(a=>a.selected).map(a=>a.stable_key)
+    });
+    STRUCTURE.relocation=r.plan;toast('重定位选择已保存');drawStructureWorkbench();
+  }catch(e){toast('保存选择失败：'+e.message);}
+}
+async function approveRelocationPlan(){
+  const p=STRUCTURE.relocation;
+  if(!p.summary.selected){toast('请至少选择一条重定位动作');return;}
+  if(p.summary.conflicts){toast('仍有同名冲突，请处理或取消选择');return;}
+  const actor=prompt('请输入审批人标识','');
+  if(actor===null||!actor.trim())return;
+  if(!confirm('确认审批所选历史文件重定位计划？审批本身不会移动文件。'))return;
+  try{
+    const r=await api('/api/relocation-plans/'+p.id+'/approve','POST',{actor:actor.trim()});
+    STRUCTURE.relocation=r.plan;toast(r.message);drawStructureWorkbench();
+  }catch(e){toast('审批失败：'+e.message);}
+}
+async function runRelocationJob(dryRun,rollback){
+  const p=STRUCTURE.relocation;
+  const promptText=rollback?
+    '将按审计记录把本计划实际移动的文件搬回原目录，确认继续？':
+    dryRun?'只读取远程目录并检查冲突，不移动文件。继续？':
+    '将先全量检查冲突，再移动已审批的历史文件。确认继续？';
+  if(!confirm(promptText))return;
+  const panel=$('#relocation-job-panel');
+  panel.innerHTML='<p class="muted">正在启动历史重定位任务…</p>';
+  try{
+    const r=await api('/api/jobs/relocation-apply','POST',{
+      plan_id:p.id,dry_run:dryRun,rollback
+    });
+    while(true){
+      const j=await api('/api/jobs/'+r.job_id),pg=j.progress;
+      const pct=pg.total?Math.round(pg.done/pg.total*100):(j.status==='success'?100:0);
+      panel.innerHTML=`<p>${statusBadge(j.status)}</p><div class="bar"><i style="width:${pct}%"></i></div>
+        <pre class="log">${esc((j.log||[]).join('\n'))}</pre>`;
+      if(['success','error','cancelled','interrupted'].includes(j.status)){
+        STRUCTURE.relocation=(await api('/api/relocation-plans/'+p.id)).plan;
+        toast(j.status==='success'?'历史重定位任务完成':'历史重定位任务未完成');
+        drawStructureWorkbench();break;
+      }
+      await new Promise(resolve=>setTimeout(resolve,900));
+    }
+  }catch(e){toast('重定位任务失败：'+e.message);}
+}
+
+function editStructureName(id,value){
+  const n=STRUCTURE.draft.nodes.find(x=>x.node_id===id);if(n){n.display_name=value;STRUCTURE.dirty=true;}
+  const mark=$('.dirty-mark');if(mark)mark.style.display='';
+}
+function toggleStructureSelection(id,checked){
+  const selected=new Set(STRUCTURE.selected||[]);
+  if(checked)selected.add(id);else selected.delete(id);
+  STRUCTURE.selected=[...selected];
+}
+async function mergeSelectedNodes(){
+  if(STRUCTURE.dirty){toast('请先保存其他目录修改再执行合并');return;}
+  const selected=(STRUCTURE.selected||[])
+    .map(id=>STRUCTURE.draft.nodes.find(n=>n.node_id===id)).filter(Boolean);
+  if(selected.length<2){toast('请至少选择两个目录');return;}
+  const choices=selected.map((n,i)=>`${i+1}. ${n.display_name}`).join('\n');
+  const answer=prompt(`请选择合并后保留的目标目录编号：\n${choices}`,'1');
+  if(answer===null)return;
+  const target=selected[Number(answer)-1];
+  if(!target){toast('目标目录编号无效');return;}
+  const sources=selected.filter(n=>n.node_id!==target.node_id);
+  if(sources.some(n=>['triage','archive'].includes(n.node_kind))){
+    toast('待整理和归档系统目录不能作为合并来源');return;
+  }
+  const policy_resolutions={};
+  for(const field of ['owner','steward']){
+    const values=[...new Set([target,...sources].map(n=>n[field]||'').filter(Boolean))];
+    if(values.length>1){
+      const selectedValue=prompt(
+        `${field} 不一致，必须人工选择合并后的值：\n`+
+        values.map((v,i)=>`${i+1}. ${v}`).join('\n'),'1'
+      );
+      if(selectedValue===null)return;
+      const value=values[Number(selectedValue)-1];
+      if(!value){toast(`${field} 选择无效`);return;}
+      policy_resolutions[field]=value;
+    }
+  }
+  if(!confirm(`将 ${sources.map(n=>n.display_name).join('、')} 合并到 ${target.display_name}。\n旧目录只退役，不自动删除。继续？`))return;
+  try{
+    const r=await api('/api/structures/drafts/'+STRUCTURE.draft.id+'/merge','POST',{
+      revision:STRUCTURE.draft.revision,target_node_id:target.node_id,
+      source_node_ids:sources.map(n=>n.node_id),policy_resolutions
+    });
+    STRUCTURE.draft=r.structure;STRUCTURE.selected=[];STRUCTURE.plan=null;STRUCTURE.planStale=false;STRUCTURE.dirty=false;
+    toast(r.message);drawStructureWorkbench();
+  }catch(e){toast('合并失败：'+e.message);}
+}
+function openSplitSelected(){
+  if(STRUCTURE.dirty){toast('请先保存其他目录修改再配置拆分');return;}
+  const selected=(STRUCTURE.selected||[])
+    .map(id=>STRUCTURE.draft.nodes.find(n=>n.node_id===id)).filter(Boolean);
+  if(selected.length!==1){toast('请选择一个需要拆分的分类目录');return;}
+  if(['triage','archive'].includes(selected[0].node_kind)){
+    toast('系统目录不能配置自动拆分');return;
+  }
+  $('#split-source-id').value=selected[0].node_id;
+  $('#split-rule-rows').innerHTML='';
+  addSplitRuleRow({display_name:'匹配目录',field:'original_name',operator:'contains',value:'',priority:10});
+  addSplitRuleRow({display_name:'90 待整理',fallback:true,priority:9999});
+  $('#split-rule-dialog').showModal();
+}
+function addSplitRuleRow(rule={}){
+  const row=document.createElement('div');row.className='rule-row';
+  row.innerHTML=`<label>目标目录<input class="split-name" value="${esc(rule.display_name||'新目录')}"></label>
+    <label>字段<select class="split-field">
+      <option value="original_name">文件名</option><option value="source_path">来源路径</option>
+      <option value="doc_type">文档类型</option><option value="year">年份</option>
+      <option value="metadata.department">元数据：部门</option></select></label>
+    <label>操作<select class="split-operator">
+      <option value="contains">包含</option><option value="equals">等于</option>
+      <option value="prefix">前缀</option><option value="regex">正则</option>
+      <option value="in">属于列表</option></select></label>
+    <label>匹配值<input class="split-value" value="${esc(rule.value||'')}"></label>
+    <label>优先级<input class="split-priority" type="number" min="1" value="${Number(rule.priority)||100}"></label>
+    <label><input class="split-fallback" type="checkbox" style="width:auto" ${rule.fallback?'checked':''}> 兜底</label>
+    <button class="tree-mini" onclick="this.parentElement.remove();return false" title="删除规则">×</button>`;
+  row.querySelector('.split-field').value=rule.field||'original_name';
+  row.querySelector('.split-operator').value=rule.operator||'contains';
+  $('#split-rule-rows').appendChild(row);
+}
+async function submitSplitRules(){
+  const rows=[...document.querySelectorAll('#split-rule-rows .rule-row')];
+  if(rows.length<2){toast('拆分至少需要两个目标目录');return;}
+  const children=rows.map(row=>{
+    const fallback=row.querySelector('.split-fallback').checked;
+    return {display_name:row.querySelector('.split-name').value.trim(),
+      assignment_rule:{fallback,field:row.querySelector('.split-field').value,
+        operator:row.querySelector('.split-operator').value,
+        value:row.querySelector('.split-value').value.trim(),
+        priority:Number(row.querySelector('.split-priority').value)||100}};
+  });
+  try{
+    const sourceNodeId=$('#split-source-id').value;
+    const r=await api('/api/structures/drafts/'+STRUCTURE.draft.id+'/split','POST',{
+      revision:STRUCTURE.draft.revision,source_node_id:sourceNodeId,children
+    });
+    STRUCTURE.plannedCollapsed.delete(sourceNodeId);
+    STRUCTURE.draft=r.structure;STRUCTURE.selected=[];STRUCTURE.plan=null;STRUCTURE.planStale=false;
+    $('#split-rule-dialog').close();toast(r.message);drawStructureWorkbench();
+  }catch(e){toast('拆分失败：'+e.message);}
+}
+function openNodePolicy(id){
+  const n=STRUCTURE.draft.nodes.find(x=>x.node_id===id);if(!n)return;
+  $('#policy-node-id').value=id;$('#policy-owner').value=n.owner||'';
+  $('#policy-steward').value=n.steward||'';$('#policy-review').value=n.review_months||12;
+  $('#policy-retention').value=n.retention_years||5;
+  const rule=n.assignment_rule||{};
+  $('#policy-rule-fallback').checked=!!rule.fallback;
+  $('#policy-rule-field').value=rule.field||'';
+  $('#policy-rule-operator').value=rule.operator||'contains';
+  $('#policy-rule-value').value=Array.isArray(rule.value)?rule.value.join(','):rule.value||'';
+  $('#policy-rule-priority').value=rule.priority||100;
+  $('#policy-aliases').textContent='历史路由别名：'+((n.aliases||[]).join('、')||'无');
+  $('#node-policy-dialog').showModal();
+}
+function saveNodePolicy(){
+  const n=STRUCTURE.draft.nodes.find(x=>x.node_id===$('#policy-node-id').value);if(!n)return;
+  n.owner=$('#policy-owner').value.trim();n.steward=$('#policy-steward').value.trim();
+  n.review_months=Math.max(1,Number($('#policy-review').value)||12);
+  n.retention_years=Math.max(1,Number($('#policy-retention').value)||5);
+  const fallback=$('#policy-rule-fallback').checked,field=$('#policy-rule-field').value;
+  n.assignment_rule=(fallback||field)?{
+    fallback,field,operator:$('#policy-rule-operator').value,
+    value:$('#policy-rule-value').value.trim(),
+    priority:Math.max(1,Number($('#policy-rule-priority').value)||100)
+  }:{};
+  STRUCTURE.dirty=true;$('#node-policy-dialog').close();drawStructureWorkbench();
+}
+function addStructureNode(parent){
+  const id=(crypto.randomUUID?crypto.randomUUID():'node-'+Date.now()+'-'+Math.random().toString(16).slice(2));
+  STRUCTURE.draft.nodes.push({node_id:id,parent_node_id:parent||null,semantic_key:'user.'+id,
+    display_name:'新目录',sort_order:STRUCTURE.draft.nodes.length,node_kind:'category',
+    owner:'',steward:'',review_months:12,retention_years:5,status:'active',
+    aliases:[],assignment_rule:{},item_count:0});
+  if(parent)STRUCTURE.plannedCollapsed.delete(parent);
+  STRUCTURE.dirty=true;drawStructureWorkbench();
+}
+function removeStructureNode(id){
+  const children=STRUCTURE.draft.nodes.filter(n=>n.parent_node_id===id);
+  if(children.length&&!confirm(`该目录有 ${children.length} 个直接子目录，删除后子目录将移到根级，继续？`))return;
+  STRUCTURE.draft.nodes.forEach(n=>{if(n.parent_node_id===id)n.parent_node_id=null;});
+  STRUCTURE.draft.nodes=STRUCTURE.draft.nodes.filter(n=>n.node_id!==id);
+  STRUCTURE.dirty=true;drawStructureWorkbench();
+}
+function moveStructureOrder(id,delta){
+  const n=STRUCTURE.draft.nodes.find(x=>x.node_id===id);if(!n)return;
+  const peers=STRUCTURE.draft.nodes.filter(x=>(x.parent_node_id||'')===(n.parent_node_id||''))
+    .sort((a,b)=>a.sort_order-b.sort_order);
+  const i=peers.indexOf(n),j=i+delta;if(j<0||j>=peers.length)return;
+  [peers[i].sort_order,peers[j].sort_order]=[peers[j].sort_order,peers[i].sort_order];
+  STRUCTURE.dirty=true;drawStructureWorkbench();
+}
+function startStructureDrag(e,id){STRUCTURE.dragNode=id;e.dataTransfer.effectAllowed='move';e.stopPropagation();}
+function dropStructureNode(e,parent){
+  e.preventDefault();e.stopPropagation();
+  const id=STRUCTURE.dragNode;if(!id||id===parent)return;
+  const n=STRUCTURE.draft.nodes.find(x=>x.node_id===id);if(!n)return;
+  n.parent_node_id=parent||null;n.sort_order=STRUCTURE.draft.nodes.length;
+  if(parent)STRUCTURE.plannedCollapsed.delete(parent);
+  STRUCTURE.dragNode='';STRUCTURE.dirty=true;drawStructureWorkbench();
+}
+async function saveStructureDraft(){
+  const d=STRUCTURE.draft;
+  try{
+    STRUCTURE.draft=(await api('/api/structures/drafts/'+d.id,'PUT',{
+      revision:d.revision,name:d.name,root_name:d.root_name,nodes:d.nodes
+    })).structure;
+    STRUCTURE.dirty=false;STRUCTURE.plan=null;STRUCTURE.planStale=false;
+    toast('结构草稿已保存');drawStructureWorkbench();
+  }catch(e){toast('保存失败：'+e.message);}
+}
+async function validateStructure(){
+  if(STRUCTURE.dirty){toast('请先保存草稿再校验');return;}
+  try{
+    const r=await api('/api/structures/drafts/'+STRUCTURE.draft.id+'/validate','POST',{});
+    const box=$('#structure-validation');box.className='validation-box '+(r.valid?'good':'bad');
+    box.innerHTML=r.valid?`✅ 校验通过；${r.node_count} 个节点。${r.warnings.map(x=>esc(x.message)).join('；')}`:
+      `❌ ${r.errors.map(x=>esc(x.message)).join('；')}`;
+  }catch(e){toast('校验失败：'+e.message);}
+}
+async function checkStructureHealth(){
+  if(STRUCTURE.dirty){toast('请先保存草稿再检查健康度');return;}
+  try{
+    const h=await api('/api/structures/'+STRUCTURE.draft.id+'/health');
+    const b=h.binding_coverage,g=h.governance_coverage,s=h.split_impact;
+    const box=$('#structure-validation');
+    box.className='validation-box '+(h.validation.valid?'good':'bad');
+    box.innerHTML=`结构健康度：${h.validation.valid?'校验通过':'存在阻断'}；最大深度 ${h.max_depth}；
+      已绑定 ${b.bound}/${b.total}；Owner ${g.owner}/${g.total}；Steward ${g.steward}/${g.total}；
+      空叶目录 ${h.empty_leaf_nodes}；拆分影响 ${s.total_items} 项；
+      已迁移重定位候选 ${s.loaded_relocation_candidates} 项（仅预览）。`;
+  }catch(e){toast('健康检查失败：'+e.message);}
+}
+async function generateStructureSuggestions(){
+  if(STRUCTURE.dirty){toast('请先保存草稿再生成建议');return;}
+  try{
+    const r=await api('/api/structures/drafts/'+STRUCTURE.draft.id+'/generate','POST',{});
+    const box=$('#structure-validation'),items=(r.suggestions||[]).slice(0,12);
+    box.className='validation-box';
+    box.innerHTML=`<b>结构建议（只读，不会自动保存或修改飞书）</b>
+      ${items.map(x=>`<div style="margin-top:6px"><b>${esc(x.title)}</b>
+        <span class="muted">置信度 ${Math.round(Number(x.confidence||0)*100)}%</span>
+        <div class="muted">${esc(x.reason)}</div></div>`).join('')||
+        '<div class="muted">当前结构没有明显的新增建议。</div>'}`;
+  }catch(e){toast('生成建议失败：'+e.message);}
+}
+async function refreshRemoteStructure(){
+  if(STRUCTURE.dirty){toast('请先保存草稿，避免对比结果失效');return;}
+  try{
+    const r=await api('/api/remote-structures/refresh','POST',{mode:STRUCTURE.draft.mode});
+    STRUCTURE.snapshot=r.snapshot;STRUCTURE.planStale=!!STRUCTURE.plan;
+    STRUCTURE.plan=null;toast('飞书目录快照已刷新，请重新生成差异');drawStructureWorkbench();
+  }catch(e){toast(e.message);}
+}
+async function previewStructureDiff(){
+  if(STRUCTURE.dirty){toast('请先保存草稿再生成差异');return;}
+  try{
+    const body=STRUCTURE.snapshot?{snapshot_id:STRUCTURE.snapshot.id}:{};
+    body.history_scope=(STRUCTURE.plan&&STRUCTURE.plan.history_scope)||'unmigrated_only';
+    STRUCTURE.plan=(await api('/api/structures/drafts/'+STRUCTURE.draft.id+'/diff','POST',body)).plan;
+    STRUCTURE.planStale=false;
+    drawStructureWorkbench();
+  }catch(e){toast('生成差异失败：'+e.message);}
+}
+async function updateStructurePlanScope(scope){
+  const p=STRUCTURE.plan;if(!p||p.status!=='preview')return;
+  try{
+    STRUCTURE.plan=(await api('/api/structure-plans/'+p.id,'PUT',{
+      revision:p.revision,history_scope:scope
+    })).plan;
+    toast('历史作用范围已保存');drawStructureWorkbench();
+  }catch(e){toast('保存发布范围失败：'+e.message);drawStructureWorkbench();}
+}
+async function approveStructurePlan(){
+  const p=STRUCTURE.plan;
+  if(!p){toast('请先生成差异计划');return;}
+  const actor=prompt('发布计划审批人','');
+  if(actor===null||!actor.trim())return;
+  if(!confirm('确认审批当前差异和历史作用范围？审批本身不会修改飞书。'))return;
+  try{
+    const r=await api('/api/structure-plans/'+p.id+'/approve','POST',{actor:actor.trim()});
+    STRUCTURE.plan=r.plan;toast(r.message);drawStructureWorkbench();
+  }catch(e){toast('计划审批失败：'+e.message);}
+}
+async function cancelStructurePlan(){
+  const p=STRUCTURE.plan;if(!p||!confirm('确认取消当前结构发布计划？'))return;
+  try{
+    STRUCTURE.plan=(await api('/api/structure-plans/'+p.id+'/cancel','POST',{})).plan;
+    toast('结构计划已取消');drawStructureWorkbench();
+  }catch(e){toast('取消失败：'+e.message);}
+}
+async function approveStructure(){
+  if(STRUCTURE.dirty){toast('请先保存草稿');return;}
+  if(STRUCTURE.draft.status==='draft'&&!STRUCTURE.plan){
+    toast('请先生成并检查差异计划');return;
+  }
+  if(STRUCTURE.plan&&STRUCTURE.plan.summary.blocking_conflicts){
+    const conflicts=STRUCTURE.plan.actions.filter(action=>action.action_type==='CONFLICT');
+    const box=$('#structure-validation');box.className='validation-box bad';
+    box.innerHTML=`<b>存在 ${conflicts.length} 项阻断，暂不能最终确认：</b>
+      ${conflicts.map(action=>`<div style="margin-top:5px">• ${esc(action.display_name)}：
+        ${esc((action.before||{}).reason||'请检查远端绑定和同名目录')}</div>`).join('')}
+      <div class="muted" style="margin-top:6px">请刷新飞书现状并重新生成差异；可修复的旧内容文件绑定会显示为“映射已有”。</div>`;
+    box.scrollIntoView({behavior:'smooth',block:'center'});
+    toast(`仍有 ${conflicts.length} 项阻断，请查看页面详情`);return;
+  }
+  const reviewing=STRUCTURE.draft.status==='reviewing';
+  const actor=prompt('请输入审批人标识（姓名或邮箱）','');
+  if(actor===null||!actor.trim()){toast('审批人不能为空');return;}
+  let required=STRUCTURE.draft.required_approvals||1;
+  if(!reviewing){
+    const answer=prompt('需要几位不同审批人确认？','1');
+    if(answer===null)return;
+    required=Math.max(1,Number(answer)||1);
+  }
+  const comment=prompt('审批意见（可选）','');
+  if(comment===null)return;
+  if(!confirm('确认记录本次审批？本操作不会直接修改飞书目录。'))return;
+  try{
+    const r=await api('/api/structures/drafts/'+STRUCTURE.draft.id+'/approve','POST',{
+      actor:actor.trim(),required_approvals:required,comment
+    });
+    STRUCTURE.draft=r.structure;toast(r.message);drawStructureWorkbench();
+  }catch(e){toast('确认失败：'+e.message);}
+}
+async function createNextStructureDraft(){
+  try{
+    STRUCTURE.draft=(await api('/api/structures/drafts','POST',{})).structure;
+    STRUCTURE.plan=null;STRUCTURE.planStale=false;STRUCTURE.dirty=false;drawStructureWorkbench();
+  }catch(e){toast('创建草稿失败：'+e.message);}
+}
+async function runStructureApply(dryRun){
+  if(!STRUCTURE.plan){toast('请先生成并审批结构发布计划');return;}
+  if(!dryRun&&!['approved','failed'].includes(STRUCTURE.plan.status)){
+    toast('结构发布计划尚未审批');return;
+  }
+  if(!dryRun&&!confirm('将按已确认计划真实创建、映射或移动飞书目录；不会删除飞书现有目录。确认继续？'))return;
+  const panel=$('#structure-job-panel');panel.innerHTML='<p class="muted">正在启动结构发布任务…</p>';
+  try{
+    const r=await api('/api/jobs/structure-apply','POST',{
+      version_id:STRUCTURE.draft.id,plan_id:STRUCTURE.plan.id,dry_run:dryRun
+    });
+    while(true){
+      const j=await api('/api/jobs/'+r.job_id);
+      const p=j.progress,pct=p.total?Math.round(p.done/p.total*100):(j.status==='success'?100:0);
+      panel.innerHTML=`<p>结构发布：${statusBadge(j.status)}</p><div class="bar"><i style="width:${pct}%"></i></div>
+        <pre class="log">${esc((j.log||[]).join('\n'))}</pre>`;
+      if(['success','error','cancelled','interrupted'].includes(j.status)){
+        STRUCTURE.plan=(await api('/api/structure-plans/'+STRUCTURE.plan.id)).plan;
+        if(j.status==='success'&&!dryRun){toast('结构版本已激活');setTimeout(renderTargets,500);}
+        break;
+      }
+      await new Promise(r=>setTimeout(r,900));
+    }
+  }catch(e){panel.innerHTML=`<p>❌ ${esc(e.message)}</p>`;}
+}
+function confirmTargetJob(path,body,message){
+  if(window.confirm(message))runTargetJob(path,body);
 }
 async function runTargetJob(path,body){
   const panel=$('#job-panel2')||$('#tab-targets');
-  try{const {job_id}=await api(path,'POST',body);await pollJobInto(job_id,panel);renderTargets();}
+  try{const {job_id}=await api(path,'POST',body);await pollJobInto(job_id,panel);}
   catch(e){toast(e.message);}
 }
 async function pollJobInto(id,panel){
   while(true){
     const j=await api('/api/jobs/'+id);
     const p=j.progress,pct=p.total?Math.round(p.done/p.total*100):(j.status==='success'?100:0);
-    panel.innerHTML=`<p>状态：${statusBadge(j.status)}</p><div class="bar"><i style="width:${pct}%"></i></div>
+    panel.innerHTML=`<p>状态：${statusBadge(j.status)}</p>
+      ${['pending','running'].includes(j.status)?`<p><button class="btn ghost" onclick="cancelJob('${id}')">取消任务</button></p>`:''}
+      <div class="bar"><i style="width:${pct}%"></i></div>
       <pre class="log">${esc((j.log||[]).join('\n'))}</pre>`;
-    if(j.status==='success'||j.status==='error')break;
+    if(['success','error','cancelled','interrupted'].includes(j.status))break;
     await new Promise(r=>setTimeout(r,900));
   }
 }
 
-const RENDER={overview:renderOverview,config:renderConfig,auth:renderAuth,migrate:renderMigrate,review:renderReview,targets:renderTargets};
-renderOverview();
+const RENDER={overview:renderOverview,config:renderConfig,auth:renderAuth,migrate:renderMigrate,review:renderReview,governance:renderGovernance,targets:renderTargets};
+bootConsole();
 </script>
 </body>
 </html>

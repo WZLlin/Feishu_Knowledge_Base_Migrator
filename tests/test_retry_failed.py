@@ -38,6 +38,29 @@ def test_requeue_only_load_failures(tmp_path):
     led.close()
 
 
+def test_structured_fetch_failure_can_be_requeued_to_discovered(tmp_path):
+    led, _orch = _mk(tmp_path)
+    key = _discover(led, "a", "甲.docx")
+    led.mark_failed(key, "fetch", "下载超时")
+
+    assert led.get(key)["failed_stage"] == "fetch"
+    assert led.get(key)["retry_count"] == 1
+    assert led.requeue_failures("fetch", Stage.DISCOVERED) == 1
+    assert led.get(key)["stage"] == Stage.DISCOVERED.value
+    assert led.get(key)["error_detail"] is None
+    led.close()
+
+
+def test_non_retryable_failure_stays_failed(tmp_path):
+    led, _orch = _mk(tmp_path)
+    key = _discover(led, "a", "甲.docx")
+    led.mark_failed(key, "fetch", "源端不支持导出", retryable=False)
+
+    assert led.requeue_failures("fetch", Stage.DISCOVERED) == 0
+    assert led.get(key)["stage"] == Stage.FAILED.value
+    led.close()
+
+
 def test_retry_failed_loads_dry_run(tmp_path):
     led, orch = _mk(tmp_path)
     ka = _discover(led, "a", "甲.docx")
